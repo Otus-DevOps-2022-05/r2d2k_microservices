@@ -6,3 +6,6 @@ test_alpine             latest    fd8e1b7c15b7   2 months ago         5.54MB
 alpine                  latest    9c6f07244728   2 months ago         5.54MB
 ubuntu                  latest    df5de72bdb3b   2 months ago         77.8MB
 hello-world             latest    feb5d9fea6a5   13 months ago        13.3kB
+
+Образ содержит в себе всё необходимое для запуска контейнера, а контейнер представляет из себя уже запущеный процесс в памяти.
+У него есть сетевые настройки и слой на диске.
