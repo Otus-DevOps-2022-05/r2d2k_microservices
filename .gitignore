@@ -7,3 +7,5 @@ variables.json
 *.tfbackend
 .terraform/
 terraform-key.json
+ansible-key.json
+yc.yml
