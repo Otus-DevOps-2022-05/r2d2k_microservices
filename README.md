@@ -11,11 +11,14 @@
 
 ## 01 - Технология контейнеризации. Введение в Docker
 
-**Задание №01-1:** Создать docker host. Создать свой образ. Изучить работу с Docker Hub
+**Задание №01-1:**
+ - Создать docker host
+ - Создать свой образ
+ - Изучить работу с Docker Hub
 
 **Решение №01-1:**
 Работаем в каталоге `docker-monolith`.
-Устанавливаем Docker по (официальной)[https://docs.docker.com/engine/install/ubuntu/] документации.
+Устанавливаем Docker по [официальной](https://docs.docker.com/engine/install/ubuntu/) документации.
 Проверяем версии установленного ПО:
 ```console
 > docker version
@@ -83,14 +86,14 @@ For more examples and ideas, visit:
  https://docs.docker.com/get-started/
 ```
 
-Образ был скачан, запущен в контейнере, вывел сообщение и завершил работу. Вот он в выключенном состоянии:
+Образ был скачан, запущен в контейнере, вывел сообщение и завершил работу. Вот контейнер в выключенном состоянии:
 ```console
 > docker ps -a
 CONTAINER ID   IMAGE         COMMAND    CREATED         STATUS                     PORTS     NAMES
 7209dc11e9c9   hello-world   "/hello"   6 seconds ago   Exited (0) 3 seconds ago             ecstatic_tu
 ```
 
-Видим, что образ присутствут на локальной системе:
+Видим, что образ присутствует в локальной системе:
 ```console
 > docker images
 REPOSITORY    TAG       IMAGE ID       CREATED         SIZE
@@ -149,7 +152,7 @@ CONTAINER ID   IMAGE          COMMAND                  CREATED         STATUS   
 f79a4795e75a   nginx:latest   "/docker-entrypoint.…"   6 seconds ago   Up 4 seconds   80/tcp    heuristic_elgamal
 ```
 
-Из запущенного контейнера можно создать образ:
+Из запущенного контейнера, при необходимости, можно создать образ:
 ```console
 > docker commit e0c1b582acce r2d2k/ubuntu-tmp-file
 sha256:dba315d073020223be142943876a4681aab37280aed53e105d79869c6269ac37
@@ -205,8 +208,8 @@ Local Volumes   0         0         0B        0B
 Build Cache     0         0         0B        0B
 ```
 
-Пришло время собрать собственный образ. Подготовим четыре файла:
- - Dockerfile - текстовое описание нашего образа
+Пришло время собрать собственный образ, для этого подготовим четыре файла:
+ - Dockerfile - инструкции для сборки нашего образа
  - mongod.conf - подготовленный конфиг для mongodb
  - db_config - содержит переменную окружения со ссылкой на mongodb
  - start.sh - скрипт запуска приложения
@@ -247,8 +250,9 @@ cd /reddit && puma || exit
 DATABASE_URL=127.0.0.1
 ```
 
-Собирать образ будем на базе `Ubuntu 18.04`. Обновляем списки пакетов, устанавливаем всё необходимое для работы. Клонируем пепозиторий с приложением.
-Копируем конфигурационные файлы приложения и скрипт для его запуска. Устанавливаем пакеты `ruby` и запускаем приложение.
+Собирать образ будем на базе `Ubuntu 18.04`. Обновляем списки пакетов, устанавливаем всё необходимое для работы. Клонируем репозиторий с приложением.
+Копируем конфигурационные файлы приложения и скрипт для его запуска. Устанавливаем необходимые пакеты `ruby` и запускаем приложение.
+
 Содержимое: `Dockerfile`:
 ```Dockerfile
 FROM ubuntu:18.04
@@ -359,7 +363,7 @@ reddit       latest    4a45f764506c   6 minutes ago    668MB
 ubuntu       18.04     71cb16d32be4   2 weeks ago      63.1MB
 ```
 
-Запустим наш образ и проверим статус:
+Запустим контейнер с нашим образом и проверим статус:
 ```console
 > docker run --name reddit -d --network=host reddit:latest
 082020743e90c4038b58d9a7a20bc287c3f0796aea183b2e9b036f66af70553d
@@ -424,7 +428,7 @@ b9b23e654574: Mounted from library/ubuntu
 1.0: digest: sha256:e5022562c09c608db4c507582546b3ac28d81ad81327dcbcd8bd18ceab25089b size: 2413
 ```
 
-Попробуем запустить контейнер с образом из hub.docker.com. Для начала зачистим систему от всех контейненров и образов:
+Попробуем запустить контейнер с образом из hub.docker.com. Для начала зачистим систему от старых контейненеров и образов:
 ```console
 > docker ps
 CONTAINER ID   IMAGE           COMMAND       CREATED          STATUS          PORTS     NAMES
@@ -525,3 +529,596 @@ References
  - Проверена работа тестовых образов
  - Собран собственный образ с приложением
  - Образ загружен на Docker Hub
+
+---
+
+
+**Задание №01-2:** Теперь, когда есть готовый образ с приложением, можно автоматизировать поднятие нескольких инстансов в Yandex Cloud, установку на них докера и запуск там образа /otus-reddit:1.0
+ - Нужно реализовать в виде прототипа в директории /docker-monolith/infra/
+ - Шаблон пакера, который делает образ с уже установленным Docker;
+ - Поднятие инстансов с помощью Terraform, их количество задается переменной;
+ - Несколько плейбуков Ansible с использованием динамического инвентори для установки докера и запуска там образа приложения;
+
+**Решение №01-2:**
+При помощи `packer` подготовим образ виртуальной машины с установленным `docker`.
+Шаблон `ubuntu-docker.json` будет выглядеть так:
+```json
+{
+    "variables": {
+        "mv_service_account_key_file": "",
+        "mv_folder_id": "",
+        "mv_source_image_family": ""
+    },
+    "builders": [
+        {
+            "type": "yandex",
+            "service_account_key_file": "{{user `mv_service_account_key_file`}}",
+            "folder_id": "{{user `mv_folder_id`}}",
+            "source_image_family": "{{user `mv_source_image_family`}}",
+            "image_name": "{{user `mv_image_family`}}-{{timestamp}}",
+            "image_family": "{{user `mv_image_family`}}",
+            "ssh_username": "ubuntu",
+            "platform_id": "standard-v1",
+            "use_ipv4_nat": "true"
+        }
+    ],
+    "provisioners": [
+        {
+            "type": "shell",
+            "pause_before": "60s",
+            "script": "scripts/install_docker.sh",
+            "execute_command": "sudo {{.Path}}"
+        },
+        {
+            "type": "shell",
+            "script": "scripts/cleanup.sh",
+            "execute_command": "sudo {{.Path}}"
+        }
+    ]
+}
+```
+
+Перед выполнением скрипта установки делаем паузу в 60 секунд, чтобы завершились все процессы при старте новой машины. В противном случае у нас возникнут проблемы с `apt-get`.
+Работой будет заниматься скрипт `scripts\install_docker.sh`:
+```bash
+#!/bin/sh
+
+# Official guide: https://docs.docker.com/engine/install/ubuntu/
+
+apt-get update
+apt-get -y upgrade
+apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
+
+# Setup repo
+sudo mkdir -p /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# Update repo
+sudo apt-get update
+
+# Install latest docker
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+```
+
+Второй скрипт `scripts/cleanup.sh` используем для зачистки будущего образа от мусора:
+```bash
+#!/bin/sh
+
+apt-get autoclean
+apt-get autoremove
+```
+
+Переменные для шаблона сохраним в `variables.json`:
+```json
+{
+    "mv_service_account_key_file": "./key.json",
+    "mv_folder_id": "WYDIWYG",
+    "mv_source_image_family": "ubuntu-1804-lts",
+    "mv_image_family": "reddit-docker"
+}
+```
+
+Проверим шаблон на ошибки:
+```console
+> packer validate -var-file=variables.json ubuntu-docker.json
+The configuration is valid.
+```
+
+Запускаем сборку образа:
+```console
+> packer build -var-file=variables.json ubuntu-docker.json
+yandex: output will be in this color.
+
+==> yandex: Creating temporary RSA SSH key for instance...
+==> yandex: Using as source image: fd8hvlnfb66dgavf0e1a (name: "ubuntu-18-04-lts-v20220815", family: "ubuntu-1804-lts")
+==> yandex: Creating network...
+==> yandex: Creating subnet in zone "ru-central1-a"...
+==> yandex: Creating disk...
+==> yandex: Creating instance...
+==> yandex: Waiting for instance with id fhm7hfb88n2e76kg8vl3 to become active...
+    yandex: Detected instance IP: 84.201.129.65
+==> yandex: Using SSH communicator to connect: 84.201.129.65
+==> yandex: Waiting for SSH to become available...
+==> yandex: Connected to SSH!
+==> yandex: Pausing 1m0s before the next provisioner...
+==> yandex: Provisioning with shell script: scripts/install_docker.sh
+    yandex: Hit:1 http://mirror.yandex.ru/ubuntu bionic InRelease
+...
+...
+...
+    yandex: 0 upgraded, 0 newly installed, 0 to remove and 5 not upgraded.
+==> yandex: Stopping instance...
+==> yandex: Deleting instance...
+    yandex: Instance has been deleted!
+==> yandex: Creating image: reddit-docker-1666723129
+==> yandex: Waiting for image to complete...
+==> yandex: Success image create...
+==> yandex: Destroying subnet...
+    yandex: Subnet has been deleted!
+==> yandex: Destroying network...
+    yandex: Network has been deleted!
+==> yandex: Destroying boot disk...
+    yandex: Disk has been deleted!
+Build 'yandex' finished after 5 minutes 40 seconds.
+
+==> Wait completed after 5 minutes 40 seconds
+
+==> Builds finished. The artifacts of successful builds are:
+--> yandex: A disk image was created: reddit-docker-1666723129 (id: fd8mkch2tdig66qg0edu) with family name reddit-docker
+
+```
+
+В результате имеем образ виртуальной машины на базе Ubuntu 18.04 с предустановленным `docker`.
+Запомним реквизиты образа `reddit-docker-1666723129 (id: fd8mkch2tdig66qg0edu)`.
+
+Поднимать виртуальные машины будем при помощи `terraform`.
+
+Для начала опишем провайдер в файле `provider.tf`:
+```hcl
+terraform {
+  required_providers {
+    yandex = {
+      source = "yandex-cloud/yandex"
+    }
+  }
+  required_version = ">= 0.13"
+}
+```
+
+Формируем описания переменных в файле `variables.tf`:
+```hcl
+variable "service_account_key_file" {
+  description = "Path to service account key file"
+}
+
+variable "cloud_id" {
+  description = "Cloud"
+}
+
+variable "folder_id" {
+  description = "Folder"
+}
+
+variable "zone" {
+  description = "Zone"
+  default     = "ru-central1-a"
+}
+
+variable "image_id" {
+  description = "Image id for VM"
+}
+
+variable "subnet_id" {
+  description = "ID for subnet"
+}
+
+variable "public_key_path" {
+  description = "Path to the public key used for ssh access"
+}
+
+variable "servers_count" {
+  description = "Number of servers to create"
+}
+```
+
+Значения переменных задаём в `terraform.tfvars`:
+```hcl
+service_account_key_file    = "key.json"
+cloud_id                    = "00000000000000000000"
+folder_id                   = "00000000000000000000"
+zone                        = "00-00000000-0"
+image_id                    = "fd8mkch2tdig66qg0edu"
+subnet_id                   = "00000000000000000000"
+public_key_path             = "~/.ssh/ubuntu.pub"
+servers_count               = 2
+```
+
+Теперь опишем конфигурацию виртуальных машин `main.tf`:
+```hcl
+provider "yandex" {
+  service_account_key_file = var.service_account_key_file
+  cloud_id                 = var.cloud_id
+  folder_id                = var.folder_id
+  zone                     = var.zone
+}
+
+resource "yandex_compute_instance" "docker" {
+  name = "reddit-docker-${count.index}"
+  zone = var.zone
+
+  count = var.servers_count
+
+  resources {
+    cores  = 2
+    memory = 2
+  }
+
+  boot_disk {
+    initialize_params {
+      image_id = var.image_id
+    }
+  }
+
+  network_interface {
+    subnet_id = var.subnet_id
+    nat       = true
+  }
+
+  metadata = {
+    ssh-keys = "ubuntu:${file(var.public_key_path)}"
+  }
+}
+```
+
+Вывод адресов создаваемых машин опишем в `output.tf`:
+```hcl
+output "external_ip_address_docker" {
+  value = yandex_compute_instance.docker[*].network_interface.0.nat_ip_address
+}
+```
+
+После формирования файлов инициализируем окружение:
+```console
+> terraform init
+
+Initializing the backend...
+
+Initializing provider plugins...
+- Finding latest version of yandex-cloud/yandex...
+- Installing yandex-cloud/yandex v0.81.0...
+- Installed yandex-cloud/yandex v0.81.0 (unauthenticated)
+
+Terraform has created a lock file .terraform.lock.hcl to record the provider
+selections it made above. Include this file in your version control repository
+so that Terraform can guarantee to make the same selections by default when
+you run "terraform init" in the future.
+
+Terraform has been successfully initialized!
+
+You may now begin working with Terraform. Try running "terraform plan" to see
+any changes that are required for your infrastructure. All Terraform commands
+should now work.
+
+If you ever set or change modules or backend configuration for Terraform,
+rerun this command to reinitialize your working directory. If you forget, other
+commands will detect it and remind you to do so if necessary.
+```
+
+Создадим пару виртуальных машин:
+```console
+> terraform apply
+
+Terraform used the selected providers to generate the following execution plan. Resource actions are indicated with the
+following symbols:
+  + create
+
+Terraform will perform the following actions:
+
+  # yandex_compute_instance.docker[0] will be created
+  + resource "yandex_compute_instance" "docker" {
+      + created_at                = (known after apply)
+...
+...
+...
+      + scheduling_policy {
+          + preemptible = (known after apply)
+        }
+    }
+
+  # yandex_compute_instance.docker[1] will be created
+  + resource "yandex_compute_instance" "docker" {
+      + created_at                = (known after apply)
+...
+...
+...
+      + scheduling_policy {
+          + preemptible = (known after apply)
+        }
+    }
+
+Plan: 2 to add, 0 to change, 0 to destroy.
+
+Changes to Outputs:
+  ~ external_ip_address_docker = [
+      + (known after apply),
+      + (known after apply),
+    ]
+
+Do you want to perform these actions?
+  Terraform will perform the actions described above.
+  Only 'yes' will be accepted to approve.
+
+  Enter a value: yes
+
+yandex_compute_instance.docker[1]: Creating...
+yandex_compute_instance.docker[0]: Creating...
+yandex_compute_instance.docker[1]: Still creating... [10s elapsed]
+yandex_compute_instance.docker[0]: Still creating... [10s elapsed]
+yandex_compute_instance.docker[1]: Still creating... [20s elapsed]
+yandex_compute_instance.docker[0]: Still creating... [20s elapsed]
+yandex_compute_instance.docker[1]: Still creating... [30s elapsed]
+yandex_compute_instance.docker[0]: Still creating... [30s elapsed]
+yandex_compute_instance.docker[1]: Still creating... [40s elapsed]
+yandex_compute_instance.docker[0]: Still creating... [40s elapsed]
+yandex_compute_instance.docker[0]: Creation complete after 50s [id=fhmiqrg1f5k8tk7sc8v6]
+yandex_compute_instance.docker[1]: Still creating... [50s elapsed]
+yandex_compute_instance.docker[1]: Creation complete after 59s [id=fhmt60vocfo2mt9hkvgl]
+
+Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
+
+Outputs:
+
+external_ip_address_docker = [
+  "84.201.133.40",
+  "84.201.134.246",
+]
+```
+
+Машины созданы, адреса получены, далее запустим на этих машинах контейнер с нашим приложением.
+Просят использовать `ansible`, так используем его. Подробное описание подключения динамического инвентори я делал [тут](https://github.com/Otus-DevOps-2022-05/r2d2k_infra#08---ansible-2).
+
+Если кратко, то:
+ - Клонируем репозиторий: `git clone --branch yc_compute https://github.com/st8f/community.general.git`
+ - Ищем `community.general/plugins/inventory/yc_compute.py`
+ - Копируем в каталог `/home/ubuntu/.ansible/plugins/inventory`
+ - Читаем документацию: `ansible-doc -t inventory yc_compute`
+ - Готовим `yc.yml` и `ansible.cfg`
+
+Содержимое `yc.yml`:
+```yml
+plugin: yc_compute
+
+folders:
+  - ******************pp
+
+auth_kind: serviceaccountfile
+
+service_account_file: ./ansible-key.json
+
+hostnames:
+  - fqdn
+
+compose:
+  ansible_host: network_interfaces[0].primary_v4_address.one_to_one_nat.address
+
+keyed_groups:
+  - key: labels['group']
+    prefix: ''
+    separator: ''
+```
+
+Содержимое `ansible.cfg`:
+```ini
+[defaults]
+inventory = ./yc.yml
+remote_user = ubuntu
+private_key_file = ~/.ssh/ubuntu
+host_key_checking = False
+retry_files_enabled = False
+
+[inventory]
+enable_plugins = yc_compute
+```
+
+Проверим, как всё это отработает:
+```console
+> ansible-inventory --list
+{
+    "_meta": {
+        "hostvars": {
+            "fhmiqrg1f5k8tk7sc8v6.auto.internal": {
+                "ansible_host": "84.201.133.40"
+            },
+            "fhmt60vocfo2mt9hkvgl.auto.internal": {
+                "ansible_host": "84.201.134.246"
+            }
+        }
+    },
+    "all": {
+        "children": [
+            "ungrouped"
+        ]
+    },
+    "ungrouped": {
+        "hosts": [
+            "fhmiqrg1f5k8tk7sc8v6.auto.internal",
+            "fhmt60vocfo2mt9hkvgl.auto.internal"
+        ]
+    }
+}
+```
+
+Для запуска контейнера возьмём [community.docker.docker_container](https://docs.ansible.com/ansible/latest/collections/community/docker/docker_container_module.html).
+
+Готовим простой плэйбук `deploy_docker_app.yml`:
+```yml
+- name: Run reddit-docker
+  hosts: all
+  become: true
+  tasks:
+    - name: Run app in container
+      community.docker.docker_container:
+        name: reddit-docker
+        image: r2d2k/otus-reddit:1.0
+        state: started
+        ports:
+          - "80:9292"
+```
+
+Вот, что бывает, если плохо читаем документацию:
+```console
+> ansible-playbook deploy_docker_app.yml
+
+PLAY [Run reddit-docker] ********************************************************
+
+TASK [Gathering Facts] **********************************************************
+ok: [fhmt60vocfo2mt9hkvgl.auto.internal]
+ok: [fhmiqrg1f5k8tk7sc8v6.auto.internal]
+
+TASK [Run app in container] *****************************************************
+fatal: [fhmt60vocfo2mt9hkvgl.auto.internal]: FAILED! => {"changed": false, "msg": "Failed to import the required Python library (Docker SDK for Python: docker (Python >= 2.7) or docker-py (Python 2.6)) on fhmt60vocfo2mt9hkvgl's Python /usr/bin/python3. Please read the module documentation and install it in the appropriate location. If the required library is installed, but Ansible is using the wrong Python interpreter, please consult the documentation on ansible_python_interpreter, for example via `pip install docker` or `pip install docker-py` (Python 2.6). The error was: No module named 'docker'"}
+fatal: [fhmiqrg1f5k8tk7sc8v6.auto.internal]: FAILED! => {"changed": false, "msg": "Failed to import the required Python library (Docker SDK for Python: docker (Python >= 2.7) or docker-py (Python 2.6)) on fhmiqrg1f5k8tk7sc8v6's Python /usr/bin/python3. Please read the module documentation and install it in the appropriate location. If the required library is installed, but Ansible is using the wrong Python interpreter, please consult the documentation on ansible_python_interpreter, for example via `pip install docker` or `pip install docker-py` (Python 2.6). The error was: No module named 'docker'"}
+
+PLAY RECAP **********************************************************************
+fhmiqrg1f5k8tk7sc8v6.auto.internal : ok=1    changed=0    unreachable=0    failed=1    skipped=0    rescued=0    ignored=0
+fhmt60vocfo2mt9hkvgl.auto.internal : ok=1    changed=0    unreachable=0    failed=1    skipped=0    rescued=0    ignored=0
+```
+
+Добавляем задачу по установке Docker SDK for Python, пробуем снова:
+```yml
+- name: Run reddit-docker
+  hosts: all
+  gather_facts: no
+  become: yes
+  tasks:
+
+    - name: Install PIP
+      apt:
+        name: python3-pip
+        state: present
+
+    - name: Install Docker SDK for Python
+      pip:
+        name: docker
+        state: present
+
+    - name: Run app in container
+      community.docker.docker_container:
+        name: reddit-docker
+        image: r2d2k/otus-reddit:1.0
+        state: started
+        ports:
+          - "80:9292"
+```
+
+Внешне всё хорошо:
+```console
+> ansible-playbook deploy_docker_app.yml
+
+PLAY [Run reddit-docker] ********************************************************
+
+TASK [Install PIP] **************************************************************
+
+changed: [fhmiqrg1f5k8tk7sc8v6.auto.internal]
+changed: [fhmt60vocfo2mt9hkvgl.auto.internal]
+
+TASK [Install Docker SDK for Python] ********************************************
+changed: [fhmt60vocfo2mt9hkvgl.auto.internal]
+changed: [fhmiqrg1f5k8tk7sc8v6.auto.internal]
+
+TASK [Run app in container] *****************************************************
+changed: [fhmt60vocfo2mt9hkvgl.auto.internal]
+changed: [fhmiqrg1f5k8tk7sc8v6.auto.internal]
+
+PLAY RECAP **********************************************************************
+fhmiqrg1f5k8tk7sc8v6.auto.internal : ok=3    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+fhmt60vocfo2mt9hkvgl.auto.internal : ok=3    changed=2    unreachable=0    failed=0    skipped=0    rescued=0    ignored=0
+```
+
+Проверяем приложение на двух хостах:
+```console
+> lynx -dump http://84.201.133.40
+   (BUTTON) [1]Monolith Reddit
+     * [2]Sign up
+     * [3]Login
+
+Menu
+
+     * [4]All posts
+     * [5]New post
+
+References
+
+   1. http://84.201.133.40/
+   2. http://84.201.133.40/signup
+   3. http://84.201.133.40/login
+   4. http://84.201.133.40/
+   5. http://84.201.133.40/new
+
+> lynx -dump http://84.201.134.246
+   (BUTTON) [1]Monolith Reddit
+     * [2]Sign up
+     * [3]Login
+
+Menu
+
+     * [4]All posts
+     * [5]New post
+
+References
+
+   1. http://84.201.134.246/
+   2. http://84.201.134.246/signup
+   3. http://84.201.134.246/login
+   4. http://84.201.134.246/
+   5. http://84.201.134.246/new
+
+```
+
+Всё работает.
+Прибираем за собой, т.е. обнуляем переменную `servers_count`, применяем конфигурацию `terraform`:
+```console
+>terraform apply
+yandex_compute_instance.docker[0]: Refreshing state... [id=fhmiqrg1f5k8tk7sc8v6]
+yandex_compute_instance.docker[1]: Refreshing state... [id=fhmt60vocfo2mt9hkvgl]
+...
+...
+...
+Plan: 0 to add, 0 to change, 2 to destroy.
+
+Changes to Outputs:
+  ~ external_ip_address_docker = [
+      - "84.201.133.40",
+      - "84.201.134.246",
+    ]
+
+Do you want to perform these actions?
+  Terraform will perform the actions described above.
+  Only 'yes' will be accepted to approve.
+
+  Enter a value: yes
+
+yandex_compute_instance.docker[1]: Destroying... [id=fhmt60vocfo2mt9hkvgl]
+yandex_compute_instance.docker[0]: Destroying... [id=fhmiqrg1f5k8tk7sc8v6]
+yandex_compute_instance.docker[1]: Still destroying... [id=fhmt60vocfo2mt9hkvgl, 10s elapsed]
+yandex_compute_instance.docker[0]: Still destroying... [id=fhmiqrg1f5k8tk7sc8v6, 10s elapsed]
+yandex_compute_instance.docker[1]: Still destroying... [id=fhmt60vocfo2mt9hkvgl, 20s elapsed]
+yandex_compute_instance.docker[0]: Still destroying... [id=fhmiqrg1f5k8tk7sc8v6, 20s elapsed]
+yandex_compute_instance.docker[1]: Destruction complete after 28s
+yandex_compute_instance.docker[0]: Still destroying... [id=fhmiqrg1f5k8tk7sc8v6, 30s elapsed]
+yandex_compute_instance.docker[0]: Destruction complete after 33s
+
+Apply complete! Resources: 0 added, 0 changed, 2 destroyed.
+
+Outputs:
+
+external_ip_address_docker = []
+```
+
+**Результат №01-2:**
+ - Подготовили при помощи `packer` образ ВМ с установленным `docker`
+ - Используя `terraform` развернули несколько ВМ из этого образа
+ - Написали простой плэйбук для установки и запуска приложения в `docker` из созданного ранее контейнера
+
+---
