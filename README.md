@@ -4,6 +4,7 @@
 <!-- MarkdownTOC autolink=true -->
 
 - [01 - Технология контейнеризации. Введение в Docker](#01---%D0%A2%D0%B5%D1%85%D0%BD%D0%BE%D0%BB%D0%BE%D0%B3%D0%B8%D1%8F-%D0%BA%D0%BE%D0%BD%D1%82%D0%B5%D0%B9%D0%BD%D0%B5%D1%80%D0%B8%D0%B7%D0%B0%D1%86%D0%B8%D0%B8-%D0%92%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5-%D0%B2-docker)
+- [02 - Docker-образы. Микросервисы](#02---docker-%D0%BE%D0%B1%D1%80%D0%B0%D0%B7%D1%8B-%D0%9C%D0%B8%D0%BA%D1%80%D0%BE%D1%81%D0%B5%D1%80%D0%B2%D0%B8%D1%81%D1%8B)
 
 <!-- /MarkdownTOC -->
 
@@ -1120,5 +1121,1076 @@ external_ip_address_docker = []
  - Подготовили при помощи `packer` образ ВМ с установленным `docker`
  - Используя `terraform` развернули несколько ВМ из этого образа
  - Написали простой плэйбук для установки и запуска приложения в `docker` из созданного ранее контейнера
+
+---
+
+## 02 - Docker-образы. Микросервисы
+
+**Задание №02-1:**
+ - Научиться описывать и собирать Docker-образы для сервисного приложения
+ - Научиться оптимизировать работу с Docker-образами
+ - Запуск и работа приложения на основе Docker-образов, оценка удобства запуска контейнеров при помощи `docker run`
+
+**Решение №02-1:**
+
+Создаём новую ветку:
+```console
+> git checkout -b docker-3
+Switched to a new branch 'docker-3'
+
+> git push --set-upstream origin docker-3
+Total 0 (delta 0), reused 0 (delta 0), pack-reused 0
+remote:
+remote: Create a pull request for 'docker-3' on GitHub by visiting:
+remote:      https://github.com/Otus-DevOps-2022-05/r2d2k_microservices/pull/new/docker-3
+remote:
+To https://github.com/Otus-DevOps-2022-05/r2d2k_microservices.git
+ * [new branch]      docker-3 -> docker-3
+branch 'docker-3' set up to track 'origin/docker-3'.
+```
+
+Качаем [архив](https://github.com/express42/reddit/archive/microservices.zip), распаковываем в каталог `src`:
+```console
+> tree src/
+src/
+├── comment
+│             ├── comment_app.rb
+│             ├── config.ru
+│             ├── docker_build.sh
+│             ├── Gemfile
+│             ├── Gemfile.lock
+│             ├── helpers.rb
+│             └── VERSION
+├── post-py
+│             ├── docker_build.sh
+│             ├── helpers.py
+│             ├── post_app.py
+│             ├── requirements.txt
+│             └── VERSION
+├── README.md
+└── ui
+    ├── config.ru
+    ├── docker_build.sh
+    ├── Gemfile
+    ├── Gemfile.lock
+    ├── helpers.rb
+    ├── middleware.rb
+    ├── ui_app.rb
+    ├── VERSION
+    └── views
+        ├── create.haml
+        ├── index.haml
+        ├── layout.haml
+        └── show.haml
+
+4 directories, 25 files
+```
+
+Каталог `src` теперь основной каталог этого домашнего задания и наше приложение состоит из трех компонентов:
+ - `post-py` - сервис отвечающий за написание постов
+ - `comment` - сервис отвечающий за написание комментариев
+ - `ui` - веб-интерфейс, работающий с другими сервисами
+
+
+Создаём `Dockerfile` для приложения `post-py`:
+```Dockerfile
+FROM python:3.6.0-alpine
+
+WORKDIR /app
+ADD . /app
+
+RUN apk --no-cache --update add build-base && \
+    pip install -r /app/requirements.txt && \
+    apk del build-base
+
+ENV POST_DATABASE_HOST post_db
+ENV POST_DATABASE posts
+
+ENTRYPOINT ["python3", "post_app.py"]
+```
+
+Создаём `Dockerfile` для приложения `comment`:
+```Dockerfile
+FROM ruby:2.2
+RUN apt-get update -qq && apt-get install -y build-essential
+
+ENV APP_HOME /app
+RUN mkdir $APP_HOME
+WORKDIR $APP_HOME
+
+ADD Gemfile* $APP_HOME/
+RUN bundle install
+ADD . $APP_HOME
+
+ENV COMMENT_DATABASE_HOST comment_db
+ENV COMMENT_DATABASE comments
+
+CMD ["puma"]
+```
+
+Создаём `Dockerfile` для приложения `ui`:
+```Dockerfile
+FROM ruby:2.2
+RUN apt-get update -qq && apt-get install -y build-essential
+
+ENV APP_HOME /app
+RUN mkdir $APP_HOME
+
+WORKDIR $APP_HOME
+ADD Gemfile* $APP_HOME/
+RUN bundle install
+ADD . $APP_HOME
+
+ENV POST_SERVICE_HOST post
+ENV POST_SERVICE_PORT 5000
+ENV COMMENT_SERVICE_HOST comment
+ENV COMMENT_SERVICE_PORT 9292
+
+CMD ["puma"]
+```
+
+Для нормальной работы приложений нужна `mongodb`:
+```console
+> docker pull mongo:latest
+latest: Pulling from library/mongo
+eaead16dc43b: Pull complete
+8a00eb9f68a0: Pull complete
+f683956749c5: Pull complete
+b33b2f05ea20: Pull complete
+3a342bea915a: Pull complete
+fa956ab1c2f0: Pull complete
+138a8542a624: Pull complete
+acab179a7f07: Pull complete
+f88335710e84: Pull complete
+Digest: sha256:3b9bfc35335710340afe1e98c870491b2a969fd93b62505b4617eab73d97cec6
+Status: Downloaded newer image for mongo:latest
+docker.io/library/mongo:latest
+```
+
+Далее начинаем собирать наши образы:
+```console
+> docker build -t r2d2k/post:1.0 ./post-py
+Sending build context to Docker daemon   16.9kB
+Step 1/7 : FROM python:3.6.0-alpine
+3.6.0-alpine: Pulling from library/python
+709515475419: Pull complete
+7f8ede2d2484: Pull complete
+3c752c95ebfb: Pull complete
+39c204c94887: Pull complete
+Digest: sha256:142fc3f338b10569d08c3f3855c492c2a176b0c45af099f9ebe87f0fededb210
+Status: Downloaded newer image for python:3.6.0-alpine
+ ---> cb178ebbf0f2
+Step 2/7 : WORKDIR /app
+ ---> Running in ac54899d5936
+Removing intermediate container ac54899d5936
+ ---> 0bba10393d99
+Step 3/7 : ADD . /app
+ ---> 6a92f2a283a7
+Step 4/7 : RUN apk --no-cache --update add build-base &&     pip install -r /app/requirements.txt &&     apk del build-base
+ ---> Running in 186b45b7fe5f
+fetch http://dl-cdn.alpinelinux.org/alpine/v3.4/main/x86_64/APKINDEX.tar.gz
+fetch http://dl-cdn.alpinelinux.org/alpine/v3.4/main/x86_64/APKINDEX.tar.gz
+fetch http://dl-cdn.alpinelinux.org/alpine/v3.4/community/x86_64/APKINDEX.tar.gz
+fetch http://dl-cdn.alpinelinux.org/alpine/v3.4/community/x86_64/APKINDEX.tar.gz
+(1/21) Upgrading musl (1.1.14-r14 -> 1.1.14-r16)
+(2/21) Installing binutils-libs (2.26-r1)
+(3/21) Installing binutils (2.26-r1)
+(4/21) Installing gmp (6.1.0-r0)
+(5/21) Installing isl (0.14.1-r0)
+(6/21) Installing libgomp (5.3.0-r0)
+(7/21) Installing libatomic (5.3.0-r0)
+(8/21) Installing libgcc (5.3.0-r0)
+(9/21) Installing pkgconf (0.9.12-r0)
+(10/21) Installing pkgconfig (0.25-r1)
+(11/21) Installing mpfr3 (3.1.2-r0)
+(12/21) Installing mpc1 (1.0.3-r0)
+(13/21) Installing libstdc++ (5.3.0-r0)
+(14/21) Installing gcc (5.3.0-r0)
+(15/21) Installing make (4.1-r1)
+(16/21) Installing musl-dev (1.1.14-r16)
+(17/21) Installing libc-dev (0.7-r0)
+(18/21) Installing fortify-headers (0.8-r0)
+(19/21) Installing g++ (5.3.0-r0)
+(20/21) Installing build-base (0.4-r1)
+(21/21) Upgrading musl-utils (1.1.14-r14 -> 1.1.14-r16)
+Executing busybox-1.24.2-r13.trigger
+OK: 183 MiB in 52 packages
+Collecting prometheus_client==0.0.21 (from -r /app/requirements.txt (line 1))
+  Downloading https://files.pythonhosted.org/packages/45/6d/0cc171ce82a8f284133faf12a50018501abdc4b0742e4f8f471b6b2dc81f/prometheus_client-0.0.21.tar.gz
+Collecting flask==0.12.3 (from -r /app/requirements.txt (line 2))
+  Downloading https://files.pythonhosted.org/packages/24/3e/1b6aa496fa9bb119f6b22263ca5ca9e826aaa132431fd78f413c8bcc18e3/Flask-0.12.3-py2.py3-none-any.whl (88kB)
+Collecting pymongo==3.5.1 (from -r /app/requirements.txt (line 3))
+  Downloading https://files.pythonhosted.org/packages/a8/f6/f324f5c669478644ac64594b9d746a34e185d9c34d3f05a4a6a6dab5467b/pymongo-3.5.1.tar.gz (1.3MB)
+Collecting structlog==17.2.0 (from -r /app/requirements.txt (line 4))
+  Downloading https://files.pythonhosted.org/packages/9c/10/6f9ba14af65179d0e1a5f281064525a45a68763736188a5a6472846e3359/structlog-17.2.0-py2.py3-none-any.whl
+Collecting py-zipkin==0.13.0 (from -r /app/requirements.txt (line 5))
+  Downloading https://files.pythonhosted.org/packages/85/b7/c4b46b7437f8a7dfc255169a1df46e4a1c3456926be04c26a476c93e8893/py_zipkin-0.13.0.tar.gz
+Collecting requests==2.18.4 (from -r /app/requirements.txt (line 6))
+  Downloading https://files.pythonhosted.org/packages/49/df/50aa1999ab9bde74656c2919d9c0c085fd2b3775fd3eca826012bef76d8c/requests-2.18.4-py2.py3-none-any.whl (88kB)
+Collecting itsdangerous>=0.21 (from flask==0.12.3->-r /app/requirements.txt (line 2))
+  Downloading https://files.pythonhosted.org/packages/9c/96/26f935afba9cd6140216da5add223a0c465b99d0f112b68a4ca426441019/itsdangerous-2.0.1-py3-none-any.whl
+Collecting Jinja2>=2.4 (from flask==0.12.3->-r /app/requirements.txt (line 2))
+  Downloading https://files.pythonhosted.org/packages/20/9a/e5d9ec41927401e41aea8af6d16e78b5e612bca4699d417f646a9610a076/Jinja2-3.0.3-py3-none-any.whl (133kB)
+Collecting Werkzeug>=0.7 (from flask==0.12.3->-r /app/requirements.txt (line 2))
+  Downloading https://files.pythonhosted.org/packages/f4/f3/22afbdb20cc4654b10c98043414a14057cd27fdba9d4ae61cea596000ba2/Werkzeug-2.0.3-py3-none-any.whl (289kB)
+Collecting click>=2.0 (from flask==0.12.3->-r /app/requirements.txt (line 2))
+  Downloading https://files.pythonhosted.org/packages/4a/a8/0b2ced25639fb20cc1c9784de90a8c25f9504a7f18cd8b5397bd61696d7d/click-8.0.4-py3-none-any.whl (97kB)
+Collecting six (from structlog==17.2.0->-r /app/requirements.txt (line 4))
+  Downloading https://files.pythonhosted.org/packages/d9/5a/e7c31adbe875f2abbb91bd84cf2dc52d792b5a01506781dbcf25c91daf11/six-1.16.0-py2.py3-none-any.whl
+Collecting thriftpy (from py-zipkin==0.13.0->-r /app/requirements.txt (line 5))
+  Downloading https://files.pythonhosted.org/packages/f4/19/cca118cf7d2087310dbc8bd70dc7df0c1320f2652873a93d06d7ba356d4a/thriftpy-0.3.9.tar.gz (208kB)
+Collecting idna<2.7,>=2.5 (from requests==2.18.4->-r /app/requirements.txt (line 6))
+  Downloading https://files.pythonhosted.org/packages/27/cc/6dd9a3869f15c2edfab863b992838277279ce92663d334df9ecf5106f5c6/idna-2.6-py2.py3-none-any.whl (56kB)
+Collecting certifi>=2017.4.17 (from requests==2.18.4->-r /app/requirements.txt (line 6))
+  Downloading https://files.pythonhosted.org/packages/1d/38/fa96a426e0c0e68aabc68e896584b83ad1eec779265a028e156ce509630e/certifi-2022.9.24-py3-none-any.whl (161kB)
+Collecting chardet<3.1.0,>=3.0.2 (from requests==2.18.4->-r /app/requirements.txt (line 6))
+  Downloading https://files.pythonhosted.org/packages/bc/a9/01ffebfb562e4274b6487b4bb1ddec7ca55ec7510b22e4c51f14098443b8/chardet-3.0.4-py2.py3-none-any.whl (133kB)
+Collecting urllib3<1.23,>=1.21.1 (from requests==2.18.4->-r /app/requirements.txt (line 6))
+  Downloading https://files.pythonhosted.org/packages/63/cb/6965947c13a94236f6d4b8223e21beb4d576dc72e8130bd7880f600839b8/urllib3-1.22-py2.py3-none-any.whl (132kB)
+Collecting MarkupSafe>=2.0 (from Jinja2>=2.4->flask==0.12.3->-r /app/requirements.txt (line 2))
+  Downloading https://files.pythonhosted.org/packages/bf/10/ff66fea6d1788c458663a84d88787bae15d45daa16f6b3ef33322a51fc7e/MarkupSafe-2.0.1.tar.gz
+  Requested MarkupSafe>=2.0 from https://files.pythonhosted.org/packages/bf/10/ff66fea6d1788c458663a84d88787bae15d45daa16f6b3ef33322a51fc7e/MarkupSafe-2.0.1.tar.gz#sha256=594c67807fb16238b30c44bdf74f36c02cdf22d1c8cda91ef8a0ed8dabf5620a (from Jinja2>=2.4->flask==0.12.3->-r /app/requirements.txt (line 2)), but installing version None
+Collecting dataclasses; python_version < "3.7" (from Werkzeug>=0.7->flask==0.12.3->-r /app/requirements.txt (line 2))
+  Downloading https://files.pythonhosted.org/packages/fe/ca/75fac5856ab5cfa51bbbcefa250182e50441074fdc3f803f6e76451fab43/dataclasses-0.8-py3-none-any.whl
+Collecting importlib-metadata; python_version < "3.8" (from click>=2.0->flask==0.12.3->-r /app/requirements.txt (line 2))
+  Downloading https://files.pythonhosted.org/packages/a0/a1/b153a0a4caf7a7e3f15c2cd56c7702e2cf3d89b1b359d1f1c5e59d68f4ce/importlib_metadata-4.8.3-py3-none-any.whl
+Collecting ply<4.0,>=3.4 (from thriftpy->py-zipkin==0.13.0->-r /app/requirements.txt (line 5))
+  Downloading https://files.pythonhosted.org/packages/a3/58/35da89ee790598a0700ea49b2a66594140f44dec458c07e8e3d4979137fc/ply-3.11-py2.py3-none-any.whl (49kB)
+Collecting zipp>=0.5 (from importlib-metadata; python_version < "3.8"->click>=2.0->flask==0.12.3->-r /app/requirements.txt (line 2))
+  Downloading https://files.pythonhosted.org/packages/bd/df/d4a4974a3e3957fd1c1fa3082366d7fff6e428ddb55f074bf64876f8e8ad/zipp-3.6.0-py3-none-any.whl
+Collecting typing-extensions>=3.6.4; python_version < "3.8" (from importlib-metadata; python_version < "3.8"->click>=2.0->flask==0.12.3->-r /app/requirements.txt (line 2))
+  Downloading https://files.pythonhosted.org/packages/45/6b/44f7f8f1e110027cf88956b59f2fad776cca7e1704396d043f89effd3a0e/typing_extensions-4.1.1-py3-none-any.whl
+Installing collected packages: prometheus-client, itsdangerous, MarkupSafe, Jinja2, dataclasses, Werkzeug, zipp, typing-extensions, importlib-metadata, click, flask, pymongo, six, structlog, ply, thriftpy, py-zipkin, idna, certifi, chardet, urllib3, requests
+  Running setup.py install for prometheus-client: started
+    Running setup.py install for prometheus-client: finished with status 'done'
+  Running setup.py install for MarkupSafe: started
+    Running setup.py install for MarkupSafe: finished with status 'done'
+  Running setup.py install for pymongo: started
+    Running setup.py install for pymongo: finished with status 'done'
+  Running setup.py install for thriftpy: started
+    Running setup.py install for thriftpy: finished with status 'done'
+  Running setup.py install for py-zipkin: started
+    Running setup.py install for py-zipkin: finished with status 'done'
+Successfully installed Jinja2-3.0.3 MarkupSafe-0.0.0 Werkzeug-2.0.3 certifi-2022.9.24 chardet-3.0.4 click-8.0.4 dataclasses-0.8 flask-0.12.3 idna-2.6 importlib-metadata-4.8.3 itsdangerous-2.0.1 ply-3.11 prometheus-client-0.0.21 py-zipkin-0.13.0 pymongo-3.5.1 requests-2.18.4 six-1.16.0 structlog-17.2.0 thriftpy-0.3.9 typing-extensions-4.1.1 urllib3-1.22 zipp-3.6.0
+You are using pip version 9.0.1, however version 22.3 is available.
+You should consider upgrading via the 'pip install --upgrade pip' command.
+(1/19) Purging build-base (0.4-r1)
+(2/19) Purging make (4.1-r1)
+(3/19) Purging fortify-headers (0.8-r0)
+(4/19) Purging g++ (5.3.0-r0)
+(5/19) Purging gcc (5.3.0-r0)
+(6/19) Purging binutils (2.26-r1)
+(7/19) Purging isl (0.14.1-r0)
+(8/19) Purging libatomic (5.3.0-r0)
+(9/19) Purging pkgconfig (0.25-r1)
+(10/19) Purging pkgconf (0.9.12-r0)
+(11/19) Purging libc-dev (0.7-r0)
+(12/19) Purging musl-dev (1.1.14-r16)
+(13/19) Purging libstdc++ (5.3.0-r0)
+(14/19) Purging binutils-libs (2.26-r1)
+(15/19) Purging mpc1 (1.0.3-r0)
+(16/19) Purging mpfr3 (3.1.2-r0)
+(17/19) Purging gmp (6.1.0-r0)
+(18/19) Purging libgomp (5.3.0-r0)
+(19/19) Purging libgcc (5.3.0-r0)
+Executing busybox-1.24.2-r13.trigger
+OK: 31 MiB in 33 packages
+Removing intermediate container 186b45b7fe5f
+ ---> e24df85a06fe
+Step 5/7 : ENV POST_DATABASE_HOST post_db
+ ---> Running in 9911da2ec3d2
+Removing intermediate container 9911da2ec3d2
+ ---> 33a60c62bd72
+Step 6/7 : ENV POST_DATABASE posts
+ ---> Running in 4cfe432333f0
+Removing intermediate container 4cfe432333f0
+ ---> 71898b376dfa
+Step 7/7 : ENTRYPOINT ["python3", "post_app.py"]
+ ---> Running in 09604c0835a3
+Removing intermediate container 09604c0835a3
+ ---> b438f345df77
+Successfully built b438f345df77
+Successfully tagged r2d2k/post:1.0
+```
+
+```console
+> docker build -t r2d2k/comment:1.0 ./comment
+Sending build context to Docker daemon  14.85kB
+Step 1/11 : FROM ruby:2.2
+2.2: Pulling from library/ruby
+3d77ce4481b1: Pull complete
+534514c83d69: Pull complete
+d562b1c3ac3f: Pull complete
+4b85e68dc01d: Pull complete
+52134d825d3e: Pull complete
+b2262ff3b75c: Pull complete
+4d1332abe17f: Pull complete
+Digest: sha256:4987b5e2f03b7086c493208ef616b711fe73228391a80faf451975f9e0195236
+Status: Downloaded newer image for ruby:2.2
+ ---> 6c8e6f9667b2
+Step 2/11 : RUN apt-get update -qq && apt-get install -y build-essential
+ ---> Running in 4efd9c42effc
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following extra packages will be installed:
+  dpkg-dev fakeroot libalgorithm-diff-perl libalgorithm-diff-xs-perl
+  libalgorithm-merge-perl libdpkg-perl libfakeroot libfile-fcntllock-perl
+  libtimedate-perl
+Suggested packages:
+  debian-keyring
+The following NEW packages will be installed:
+  build-essential dpkg-dev fakeroot libalgorithm-diff-perl
+  libalgorithm-diff-xs-perl libalgorithm-merge-perl libdpkg-perl libfakeroot
+  libfile-fcntllock-perl libtimedate-perl
+0 upgraded, 10 newly installed, 0 to remove and 162 not upgraded.
+Need to get 2916 kB of archives.
+After this operation, 5051 kB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian/ jessie/main libtimedate-perl all 2.3000-2 [42.2 kB]
+Get:2 http://deb.debian.org/debian/ jessie/main libdpkg-perl all 1.17.27 [1075 kB]
+Get:3 http://deb.debian.org/debian/ jessie/main dpkg-dev all 1.17.27 [1548 kB]
+Get:4 http://deb.debian.org/debian/ jessie/main build-essential amd64 11.7 [7114 B]
+Get:5 http://deb.debian.org/debian/ jessie/main libfakeroot amd64 1.20.2-1 [44.7 kB]
+Get:6 http://deb.debian.org/debian/ jessie/main fakeroot amd64 1.20.2-1 [84.7 kB]
+Get:7 http://deb.debian.org/debian/ jessie/main libalgorithm-diff-perl all 1.19.02-3 [51.7 kB]
+Get:8 http://deb.debian.org/debian/ jessie/main libalgorithm-diff-xs-perl amd64 0.04-3+b1 [12.2 kB]
+Get:9 http://deb.debian.org/debian/ jessie/main libalgorithm-merge-perl all 0.08-2 [13.5 kB]
+Get:10 http://deb.debian.org/debian/ jessie/main libfile-fcntllock-perl amd64 0.22-1+b1 [36.4 kB]
+debconf: delaying package configuration, since apt-utils is not installed
+Fetched 2916 kB in 3s (914 kB/s)
+Selecting previously unselected package libtimedate-perl.
+(Reading database ... 21206 files and directories currently installed.)
+Preparing to unpack .../libtimedate-perl_2.3000-2_all.deb ...
+Unpacking libtimedate-perl (2.3000-2) ...
+Selecting previously unselected package libdpkg-perl.
+Preparing to unpack .../libdpkg-perl_1.17.27_all.deb ...
+Unpacking libdpkg-perl (1.17.27) ...
+Selecting previously unselected package dpkg-dev.
+Preparing to unpack .../dpkg-dev_1.17.27_all.deb ...
+Unpacking dpkg-dev (1.17.27) ...
+Selecting previously unselected package build-essential.
+Preparing to unpack .../build-essential_11.7_amd64.deb ...
+Unpacking build-essential (11.7) ...
+Selecting previously unselected package libfakeroot:amd64.
+Preparing to unpack .../libfakeroot_1.20.2-1_amd64.deb ...
+Unpacking libfakeroot:amd64 (1.20.2-1) ...
+Selecting previously unselected package fakeroot.
+Preparing to unpack .../fakeroot_1.20.2-1_amd64.deb ...
+Unpacking fakeroot (1.20.2-1) ...
+Selecting previously unselected package libalgorithm-diff-perl.
+Preparing to unpack .../libalgorithm-diff-perl_1.19.02-3_all.deb ...
+Unpacking libalgorithm-diff-perl (1.19.02-3) ...
+Selecting previously unselected package libalgorithm-diff-xs-perl.
+Preparing to unpack .../libalgorithm-diff-xs-perl_0.04-3+b1_amd64.deb ...
+Unpacking libalgorithm-diff-xs-perl (0.04-3+b1) ...
+Selecting previously unselected package libalgorithm-merge-perl.
+Preparing to unpack .../libalgorithm-merge-perl_0.08-2_all.deb ...
+Unpacking libalgorithm-merge-perl (0.08-2) ...
+Selecting previously unselected package libfile-fcntllock-perl.
+Preparing to unpack .../libfile-fcntllock-perl_0.22-1+b1_amd64.deb ...
+Unpacking libfile-fcntllock-perl (0.22-1+b1) ...
+Setting up libtimedate-perl (2.3000-2) ...
+Setting up libdpkg-perl (1.17.27) ...
+Setting up dpkg-dev (1.17.27) ...
+Setting up build-essential (11.7) ...
+Setting up libfakeroot:amd64 (1.20.2-1) ...
+Setting up fakeroot (1.20.2-1) ...
+update-alternatives: using /usr/bin/fakeroot-sysv to provide /usr/bin/fakeroot (fakeroot) in auto mode
+Setting up libalgorithm-diff-perl (1.19.02-3) ...
+Setting up libalgorithm-diff-xs-perl (0.04-3+b1) ...
+Setting up libalgorithm-merge-perl (0.08-2) ...
+Setting up libfile-fcntllock-perl (0.22-1+b1) ...
+Removing intermediate container 4efd9c42effc
+ ---> ffccdcac3a64
+Step 3/11 : ENV APP_HOME /app
+ ---> Running in 75e8523e1665
+Removing intermediate container 75e8523e1665
+ ---> 942515889cc2
+Step 4/11 : RUN mkdir $APP_HOME
+ ---> Running in 2b68bf830694
+Removing intermediate container 2b68bf830694
+ ---> 2bbd4fd7966f
+Step 5/11 : WORKDIR $APP_HOME
+ ---> Running in 45f52bff20e1
+Removing intermediate container 45f52bff20e1
+ ---> 43c09de77149
+Step 6/11 : ADD Gemfile* $APP_HOME/
+ ---> f70a60676ec8
+Step 7/11 : RUN bundle install
+ ---> Running in 1b9caed9872a
+Warning: the running version of Bundler (1.16.1) is older than the version that created the lockfile (1.17.2). We suggest you upgrade to the latest version of Bundler by running `gem install bundler`.
+Fetching gem metadata from https://rubygems.org/........
+Fetching bson 4.3.0
+Installing bson 4.3.0 with native extensions
+Fetching bson_ext 1.5.1
+Installing bson_ext 1.5.1 with native extensions
+Using bundler 1.16.1
+Fetching thread_safe 0.3.6
+Installing thread_safe 0.3.6
+Fetching tzinfo 1.2.5
+Installing tzinfo 1.2.5
+Fetching et-orbi 1.1.6
+Installing et-orbi 1.1.6
+Fetching raabro 1.1.6
+Installing raabro 1.1.6
+Fetching fugit 1.1.6
+Installing fugit 1.1.6
+Fetching mongo 2.6.2
+Installing mongo 2.6.2
+Fetching mustermann 1.0.3
+Installing mustermann 1.0.3
+Fetching quantile 0.2.1
+Installing quantile 0.2.1
+Fetching prometheus-client 0.8.0
+Installing prometheus-client 0.8.0
+Fetching puma 3.12.0
+Installing puma 3.12.0 with native extensions
+Fetching rack 2.0.6
+Installing rack 2.0.6
+Fetching rack-protection 2.0.4
+Installing rack-protection 2.0.4
+Fetching rufus-scheduler 3.5.2
+Installing rufus-scheduler 3.5.2
+Fetching tilt 2.0.9
+Installing tilt 2.0.9
+Fetching sinatra 2.0.4
+Installing sinatra 2.0.4
+Fetching tzinfo-data 1.2018.7
+Installing tzinfo-data 1.2018.7
+Bundle complete! 8 Gemfile dependencies, 19 gems now installed.
+Bundled gems are installed into `/usr/local/bundle`
+Removing intermediate container 1b9caed9872a
+ ---> 05874bc28333
+Step 8/11 : ADD . $APP_HOME
+ ---> e8dd7d8edc8a
+Step 9/11 : ENV COMMENT_DATABASE_HOST comment_db
+ ---> Running in a1b8521ac359
+Removing intermediate container a1b8521ac359
+ ---> be3334b9f2b5
+Step 10/11 : ENV COMMENT_DATABASE comments
+ ---> Running in f9b0888174fa
+Removing intermediate container f9b0888174fa
+ ---> 818315914101
+Step 11/11 : CMD ["puma"]
+ ---> Running in 46ecd35fc8d8
+Removing intermediate container 46ecd35fc8d8
+ ---> 5ed27e0339a7
+Successfully built 5ed27e0339a7
+Successfully tagged r2d2k/comment:1.0
+```
+
+```console
+> docker build -t r2d2k/ui:1.0 ./ui
+Sending build context to Docker daemon  30.72kB
+Step 1/13 : FROM ruby:2.2
+ ---> 6c8e6f9667b2
+Step 2/13 : RUN apt-get update -qq && apt-get install -y build-essential
+ ---> Using cache
+ ---> ffccdcac3a64
+Step 3/13 : ENV APP_HOME /app
+ ---> Using cache
+ ---> 942515889cc2
+Step 4/13 : RUN mkdir $APP_HOME
+ ---> Using cache
+ ---> 2bbd4fd7966f
+Step 5/13 : WORKDIR $APP_HOME
+ ---> Using cache
+ ---> 43c09de77149
+Step 6/13 : ADD Gemfile* $APP_HOME/
+ ---> 7370fda28023
+Step 7/13 : RUN bundle install
+ ---> Running in 70de0b26eeb7
+Warning: the running version of Bundler (1.16.1) is older than the version that created the lockfile (1.17.2). We suggest you upgrade to the latest version of Bundler by running `gem install bundler`.
+Fetching gem metadata from https://rubygems.org/............
+Fetching concurrent-ruby 1.1.4
+Installing concurrent-ruby 1.1.4
+Fetching i18n 1.3.0
+Installing i18n 1.3.0
+Fetching minitest 5.11.3
+Installing minitest 5.11.3
+Fetching thread_safe 0.3.6
+Installing thread_safe 0.3.6
+Fetching tzinfo 1.2.5
+Installing tzinfo 1.2.5
+Fetching activesupport 5.2.2
+Installing activesupport 5.2.2
+Fetching backports 3.11.4
+Installing backports 3.11.4
+Fetching bson 1.12.5
+Installing bson 1.12.5
+Fetching bson_ext 1.12.5
+Installing bson_ext 1.12.5 with native extensions
+Using bundler 1.16.1
+Fetching et-orbi 1.1.6
+Installing et-orbi 1.1.6
+Fetching multipart-post 2.0.0
+Installing multipart-post 2.0.0
+Fetching faraday 0.15.4
+Installing faraday 0.15.4
+Fetching thrift 0.9.3.0
+Installing thrift 0.9.3.0 with native extensions
+Fetching finagle-thrift 1.4.2
+Installing finagle-thrift 1.4.2
+Fetching raabro 1.1.6
+Installing raabro 1.1.6
+Fetching fugit 1.1.6
+Installing fugit 1.1.6
+Fetching temple 0.8.0
+Installing temple 0.8.0
+Fetching tilt 2.0.9
+Installing tilt 2.0.9
+Fetching haml 5.0.4
+Installing haml 5.0.4
+Fetching multi_json 1.13.1
+Installing multi_json 1.13.1
+Fetching mustermann 1.0.3
+Installing mustermann 1.0.3
+Fetching quantile 0.2.1
+Installing quantile 0.2.1
+Fetching prometheus-client 0.8.0
+Installing prometheus-client 0.8.0
+Fetching puma 3.12.0
+Installing puma 3.12.0 with native extensions
+Fetching rack 2.0.6
+Installing rack 2.0.6
+Fetching rack-protection 2.0.4
+Installing rack-protection 2.0.4
+Fetching rufus-scheduler 3.5.2
+Installing rufus-scheduler 3.5.2
+Fetching sinatra 2.0.4
+Installing sinatra 2.0.4
+Fetching sinatra-contrib 2.0.4
+Installing sinatra-contrib 2.0.4
+Fetching sucker_punch 2.1.1
+Installing sucker_punch 2.1.1
+Fetching tzinfo-data 1.2018.7
+Installing tzinfo-data 1.2018.7
+Fetching zipkin-tracer 0.30.0
+Installing zipkin-tracer 0.30.0
+Bundle complete! 11 Gemfile dependencies, 33 gems now installed.
+Bundled gems are installed into `/usr/local/bundle`
+Post-install message from i18n:
+
+HEADS UP! i18n 1.1 changed fallbacks to exclude default locale.
+But that may break your application.
+
+Please check your Rails app for 'config.i18n.fallbacks = true'.
+If you're using I18n (>= 1.1.0) and Rails (< 5.2.2), this should be
+'config.i18n.fallbacks = [I18n.default_locale]'.
+If not, fallbacks will be broken in your app by I18n 1.1.x.
+
+For more info see:
+https://github.com/svenfuchs/i18n/releases/tag/v1.1.0
+
+Post-install message from sucker_punch:
+Sucker Punch v2.0 introduces backwards-incompatible changes.
+Please see https://github.com/brandonhilkert/sucker_punch/blob/master/CHANGES.md#200 for details.
+Removing intermediate container 70de0b26eeb7
+ ---> 1371b93c5c26
+Step 8/13 : ADD . $APP_HOME
+ ---> ada96900535d
+Step 9/13 : ENV POST_SERVICE_HOST post
+ ---> Running in 8c0aa092dde7
+Removing intermediate container 8c0aa092dde7
+ ---> f914ee4f9740
+Step 10/13 : ENV POST_SERVICE_PORT 5000
+ ---> Running in d25fa37668fb
+Removing intermediate container d25fa37668fb
+ ---> d7c371a31dbb
+Step 11/13 : ENV COMMENT_SERVICE_HOST comment
+ ---> Running in fd864a53bd0a
+Removing intermediate container fd864a53bd0a
+ ---> 7537ff8dec53
+Step 12/13 : ENV COMMENT_SERVICE_PORT 9292
+ ---> Running in 30470579b4be
+Removing intermediate container 30470579b4be
+ ---> 78ca5da620ac
+Step 13/13 : CMD ["puma"]
+ ---> Running in 64a9d394f5a6
+Removing intermediate container 64a9d394f5a6
+ ---> dede21880119
+Successfully built dede21880119
+Successfully tagged r2d2k/ui:1.0
+```
+
+Статистика по собранным образам:
+```console
+> docker images
+REPOSITORY      TAG            IMAGE ID       CREATED          SIZE
+r2d2k/ui        1.0            dede21880119   3 minutes ago    772MB
+r2d2k/comment   1.0            5ed27e0339a7   5 minutes ago    769MB
+r2d2k/post      1.0            b438f345df77   11 minutes ago   111MB
+mongo           latest         b70536aeb250   24 hours ago     695MB
+ruby            2.2            6c8e6f9667b2   4 years ago      715MB
+python          3.6.0-alpine   cb178ebbf0f2   5 years ago      88.6MB
+```
+
+Сборка `ui` началась не с первого шага, так как у нас уже есть слои, подготовленные при сборке предыдущего приложения. Они совпали и были использованы в работе.
+
+Создаём отдельную сеть под приложения:
+```console
+> docker network create reddit
+da565863ffc207b4b5096a410a689b378388a34221fe582587a422ea4989ac18
+
+> docker network ls
+NETWORK ID     NAME      DRIVER    SCOPE
+318eb18767d9   bridge    bridge    local
+f9d28c74ca97   host      host      local
+6a9dc35c3605   none      null      local
+da565863ffc2   reddit    bridge    local
+```
+
+Создадим и запустим контейнеры с приложениями:
+```console
+docker run -d --network=reddit --network-alias=post_db --network-alias=comment_db mongo:latest
+docker run -d --network=reddit --network-alias=post r2d2k/post:1.0
+docker run -d --network=reddit --network-alias=comment r2d2k/comment:1.0
+docker run -d --network=reddit -p 9292:9292 r2d2k/ui:1.0
+
+> docker ps
+CONTAINER ID   IMAGE               COMMAND                  CREATED         STATUS         PORTS                                       NAMES
+f4d33854842a   r2d2k/ui:1.0        "puma"                   2 minutes ago   Up 2 minutes   0.0.0.0:9292->9292/tcp, :::9292->9292/tcp   flamboyant_carver
+6cce41e5d607   r2d2k/comment:1.0   "puma"                   2 minutes ago   Up 2 minutes                                               distracted_haslett
+b2881bbc8ea9   mongo:latest        "docker-entrypoint.s…"   3 minutes ago   Up 2 minutes   27017/tcp                                   zealous_rubin
+```
+
+Мы запускали четыре контейнера, а в работе всего три. Ищем четвёртый:
+```console
+> docker ps -a
+CONTAINER ID   IMAGE               COMMAND                  CREATED         STATUS                     PORTS                                       NAMES
+f4d33854842a   r2d2k/ui:1.0        "puma"                   4 minutes ago   Up 4 minutes               0.0.0.0:9292->9292/tcp, :::9292->9292/tcp   flamboyant_carver
+6cce41e5d607   r2d2k/comment:1.0   "puma"                   4 minutes ago   Up 4 minutes                                                           distracted_haslett
+4aed397da8ce   r2d2k/post:1.0      "python3 post_app.py"    4 minutes ago   Exited (1) 4 minutes ago                                               suspicious_ishizaka
+b2881bbc8ea9   mongo:latest        "docker-entrypoint.s…"   4 minutes ago   Up 4 minutes               27017/tcp                                   zealous_rubin
+```
+
+Смотрим, логи:
+```console
+> docker logs suspicious_ishizaka
+Traceback (most recent call last):
+  File "post_app.py", line 7, in <module>
+    from flask import Flask, request, Response, abort, logging
+  File "/usr/local/lib/python3.6/site-packages/flask/__init__.py", line 19, in <module>
+    from jinja2 import Markup, escape
+  File "/usr/local/lib/python3.6/site-packages/jinja2/__init__.py", line 8, in <module>
+    from .environment import Environment as Environment
+  File "/usr/local/lib/python3.6/site-packages/jinja2/environment.py", line 15, in <module>
+    from markupsafe import Markup
+ImportError: cannot import name 'Markup'
+```
+
+Не найден один из модулей. Изучаем лог сборки и видим, что пакет `MarkupSafe` не смог установиться. Виной всему устаревшая версия `pip`. Добавляем в `Dockerfile` шаг обновления `pip`.
+```Dockerfile
+FROM python:3.6.0-alpine
+
+WORKDIR /app
+ADD . /app
+
+RUN apk --no-cache --update add build-base && \
+    pip install --upgrade pip && \
+    pip install -r /app/requirements.txt && \
+    apk del build-base
+
+ENV POST_DATABASE_HOST post_db
+ENV POST_DATABASE posts
+
+ENTRYPOINT ["python3", "post_app.py"]
+```
+
+После сборки образа запускаем, проверяем, что все контейнеры на месте:
+```console
+> docker ps
+CONTAINER ID   IMAGE               COMMAND                  CREATED          STATUS          PORTS                                       NAMES
+f65870a45dd4   r2d2k/post:1.0      "python3 post_app.py"    4 seconds ago    Up 2 seconds                                                objective_darwin
+f4d33854842a   r2d2k/ui:1.0        "puma"                   30 minutes ago   Up 30 minutes   0.0.0.0:9292->9292/tcp, :::9292->9292/tcp   flamboyant_carver
+6cce41e5d607   r2d2k/comment:1.0   "puma"                   31 minutes ago   Up 30 minutes                                               distracted_haslett
+b2881bbc8ea9   mongo:latest        "docker-entrypoint.s…"   31 minutes ago   Up 31 minutes   27017/tcp                                   zealous_rubin
+```
+
+Статистика по собранным образам:
+```console
+> docker images
+REPOSITORY      TAG            IMAGE ID       CREATED          SIZE
+r2d2k/post      1.0            f5721bc9c435   3 minutes ago    121MB
+r2d2k/ui        1.0            dede21880119   42 minutes ago   772MB
+r2d2k/comment   1.0            5ed27e0339a7   44 minutes ago   769MB
+mongo           latest         b70536aeb250   25 hours ago     695MB
+ruby            2.2            6c8e6f9667b2   4 years ago      715MB
+python          3.6.0-alpine   cb178ebbf0f2   5 years ago      88.6MB
+```
+
+Проверяем, что приложение отвечает на запросы.
+```console
+> lynx -dump http://127.0.0.1:9292
+   (BUTTON) [1]Microservices Reddit in f4d33854842a container
+
+   Can't show blog posts, some problems with the post service. [2]Refresh?
+
+Menu
+
+     * [3]All posts
+     * [4]New post
+
+References
+
+   1. http://127.0.0.1:9292/
+   2. http://127.0.0.1:9292/
+   3. http://127.0.0.1:9292/
+   4. http://127.0.0.1:9292/new
+```
+
+Выше видно ошибку "Can't show blog posts, some problems with the post service". Вызвана она тем, что мы используем слишком старый драйвер БД.
+Подробности можно узнать на официальном сайте [MongoDB](https://www.mongodb.com/docs/v6.0/release-notes/6.0-compatibility/#legacy-opcodes-removed).
+Попробуем запустить БД версии ниже шестой.
+
+```console
+> docker ps
+CONTAINER ID   IMAGE               COMMAND                  CREATED          STATUS          PORTS                                       NAMES
+9cbb73073be2   r2d2k/ui:1.0        "puma"                   11 minutes ago   Up 11 minutes   0.0.0.0:9292->9292/tcp, :::9292->9292/tcp   cool_greider
+88e8909ad1cc   r2d2k/comment:1.0   "puma"                   11 minutes ago   Up 11 minutes                                               charming_tereshkova
+944b15ca7947   r2d2k/post:1.0      "python3 post_app.py"    11 minutes ago   Up 11 minutes                                               pedantic_banzai
+b449cbff86b3   mongo:latest        "docker-entrypoint.s…"   11 minutes ago   Up 11 minutes   27017/tcp                                   competent_satoshi
+
+> docker rm -f b449cbff86b3
+b449cbff86b3
+
+> docker run -d --network=reddit --network-alias=post_db --network-alias=comment_db mongo:5.0
+Unable to find image 'mongo:5.0' locally
+5.0: Pulling from library/mongo
+eaead16dc43b: Already exists
+8a00eb9f68a0: Already exists
+f683956749c5: Already exists
+b33b2f05ea20: Already exists
+3a342bea915a: Already exists
+ff038722853e: Pull complete
+a1c21bd7f89a: Pull complete
+1266ae82d139: Pull complete
+b95aca638f91: Pull complete
+Digest: sha256:26b6f0ef7e3e0dccf5c3687c5bf61ead6a60b59cc613668eabf2ca80a6fd7c75
+Status: Downloaded newer image for mongo:5.0
+782a6951a7363f3920a9901ec57f4ff66bbbe950e626ecfd07c4bcbbcf0c00ab
+```
+
+Прекрасно, записи добавляются без ошибок.
+
+**Результат №02-1:**
+Собраны три образа, запущены в одной сети с базой данных.
+Исправлены ошибки в работе приложения
+
+---
+
+**Задание №02-2:**
+ - Остановите контейнеры `docker kill $(docker ps -q)`
+ - Запустите контейнеры с другими сетевыми алиасами
+ - Адреса для взаимодействия контейнеров задаются через ENV-переменные внутри `Dockerfile`
+ - При запуске контейнеров `docker run` задайте им переменные окружения соответствующие новым сетевым алиасам, не пересоздавая образ
+ - Проверьте работоспособность сервиса
+
+**Решение №02-2:**
+Соберём данные по переменным окружения контейнеров.
+
+| **Сервис** | **Значение по умолчанию** | **Новое значение** |
+|:-----:|:--------------|:----------|
+|ui|POST_SERVICE_HOST post|POST_SERVICE_HOST wow_post|
+|ui|COMMENT_SERVICE_HOST comment|COMMENT_SERVICE_HOST wow_comment|
+|post-py|POST_DATABASE_HOST post_db|POST_DATABASE_HOST wow_post_db|
+|comment|COMMENT_DATABASE_HOST comment_db|COMMENT_DATABASE_HOST wow_comment_db|
+
+Переменные передаём в контейнеры через ключ `-e`:
+```console
+> docker run -d --network=reddit --network-alias=wow_post_db --network-alias=wow_comment_db mongo:5.0
+> docker run -d --network=reddit --network-alias=wow_post -e POST_DATABASE_HOST=wow_post_db r2d2k/post:1.0
+> docker run -d --network=reddit --network-alias=wow_comment -e COMMENT_DATABASE_HOST=wow_comment_db r2d2k/comment:1.0
+> docker run -d --network=reddit -p 9292:9292 -e POST_SERVICE_HOST=wow_post -e COMMENT_SERVICE_HOST=wow_comment r2d2k/ui:1.0
+```
+
+Приложение работает:
+```console
+> docker ps
+CONTAINER ID   IMAGE               COMMAND                  CREATED          STATUS         PORTS                                       NAMES
+1825f9cd5485   r2d2k/ui:1.0        "puma"                   9 seconds ago    Up 8 seconds   0.0.0.0:9292->9292/tcp, :::9292->9292/tcp   inspiring_satoshi
+02c2bc5b5865   r2d2k/comment:1.0   "puma"                   9 seconds ago    Up 8 seconds                                               tender_colden
+9305ac7e7bd7   r2d2k/post:1.0      "python3 post_app.py"    10 seconds ago   Up 9 seconds                                               silly_ishizaka
+7d4429630943   mongo:5.0           "docker-entrypoint.s…"   10 seconds ago   Up 9 seconds   27017/tcp                                   zen_boyd
+```
+
+На запросы отвечает:
+```console
+> lynx -dump http://127.0.0.1:9292
+   (BUTTON) [1]Microservices Reddit in 1825f9cd5485 container
+
+Menu
+
+     * [2]All posts
+     * [3]New post
+
+References
+
+   1. http://127.0.0.1:9292/
+   2. http://127.0.0.1:9292/
+   3. http://127.0.0.1:9292/new
+
+```
+
+**Результат №02-2:**
+Контейнеры запущены с другими сетевыми алиасами без пересборки контейнеров.
+Имена соседних контейнеров передаём через переменные окружения.
+
+---
+
+**Результат №02-1:**
+Собраны три образа, запущены в одной сети с базой данных.
+Исправлены ошибки в работе приложения
+
+---
+
+**Задание №02-3:**
+Оптимизация размера образов.
+
+ - Попробуйте собрать образ на основе Alpine Linux
+ - Придумайте еще способы уменьшить размер образа
+ - Можете реализовать как только для `ui`, так и для `post`, `comment`
+ - Все оптимизации проводите в Dockerfile сервиса. Дополнительные варианты решения уменьшения размера образов можете оформить в виде файла Dockerfile.<цифра> в папке сервиса
+
+**Решение №02-3:**
+Исходные данные:
+```console
+> docker images
+REPOSITORY      TAG            IMAGE ID       CREATED             SIZE
+r2d2k/post      1.0            f5721bc9c435   About an hour ago   121MB
+r2d2k/ui        1.0            dede21880119   2 hours ago         772MB
+r2d2k/comment   1.0            5ed27e0339a7   2 hours ago         769MB
+mongo           5.0            cb51c58bc695   26 hours ago        698MB
+ruby            2.2            6c8e6f9667b2   4 years ago         715MB
+python          3.6.0-alpine   cb178ebbf0f2   5 years ago         88.6MB
+```
+
+Обновим `ui/Dockerfile`:
+```patch
+--- a/src/ui/Dockerfile
++++ b/src/ui/Dockerfile
+@@ -1,5 +1,7 @@
+-FROM ruby:2.2
+-RUN apt-get update -qq && apt-get install -y build-essential
++FROM ubuntu:16.04
++RUN apt-get update \
++    && apt-get install -y ruby-full ruby-dev build-essential \
++    && gem install bundler --no-ri --no-rdoc
+
+ ENV APP_HOME /app
+ RUN mkdir $APP_HOME
+```
+
+Собираем образ заново, смотрим, как изменился размер:
+```console
+> docker build -t r2d2k/ui:2.0 ./ui
+...
+...
+...
+
+> docker images r2d2k/ui
+REPOSITORY   TAG       IMAGE ID       CREATED         SIZE
+r2d2k/ui     2.0       538bcf31c707   3 minutes ago   464MB
+r2d2k/ui     1.0       dede21880119   2 hours ago     772MB
+```
+
+Переведём образ `ui` на `Alpine Linux`.
+Так, как наше приложение скончается в мучениях, если мы попробуем запустить его на новой версии `ruby`, то придётся заняться археологией.
+Идём изучать [пакеты Alpine Linux](https://pkgs.alpinelinux.org/packages) на предмет ruby2.3. Подходящую версию находим в `Alpine Linux v3.4`.
+
+Готовим `Dockerfile.1`:
+```patch
+--- ./ui/Dockerfile     2022-10-26 19:43:40.061221284 +0000
++++ ./ui/Dockerfile.1   2022-10-26 20:24:50.443688442 +0000
+@@ -1,7 +1,5 @@
+-FROM ubuntu:16.04
+-RUN apt-get update \
+-    && apt-get install -y ruby-full ruby-dev build-essential \
+-    && gem install bundler --no-ri --no-rdoc
++FROM alpine:3.4
++RUN apk update && apk add ruby-bundler ruby-json ruby-dev build-base
+
+ ENV APP_HOME /app
+ RUN mkdir $APP_HOME
+```
+
+Так как версия очень старая, то она испытывает проблемы с проверкой сертификатов. Переводим `Gemfile` с `https` на `http`.
+Смотрим, что получается по размеру образов:
+```console
+> docker images r2d2k/ui
+REPOSITORY   TAG          IMAGE ID       CREATED             SIZE
+r2d2k/ui     3.0-alpine   59201283bad6   18 seconds ago      192MB
+r2d2k/ui     2.0          538bcf31c707   About an hour ago   464MB
+r2d2k/ui     1.0          dede21880119   3 hours ago         772MB
+```
+
+Можно выкинуть одну команду:
+```patch
+--- ./ui/Dockerfile.1   2022-10-26 20:48:18.903089747 +0000
++++ ./ui/Dockerfile.2   2022-10-26 20:51:59.482139742 +0000
+@@ -2,7 +2,6 @@
+ RUN apk update && apk add ruby-bundler ruby-json ruby-dev build-base
+
+ ENV APP_HOME /app
+-RUN mkdir $APP_HOME
+
+ WORKDIR $APP_HOME
+ ADD Gemfile* $APP_HOME/
+```
+
+После сборки образа размер не изменился:
+```console
+> docker images r2d2k/ui
+REPOSITORY   TAG          IMAGE ID       CREATED             SIZE
+r2d2k/ui     3.1-alpine   735b5108b497   2 minutes ago       192MB
+r2d2k/ui     3.0-alpine   59201283bad6   5 minutes ago       192MB
+r2d2k/ui     2.0          538bcf31c707   About an hour ago   464MB
+r2d2k/ui     1.0          dede21880119   3 hours ago         772MB
+```
+
+Переведём `comment` на `Alpine Linux`:
+```patch
+--- ./comment/Dockerfile        2022-10-26 05:42:22.019148857 +0000
++++ ./comment/Dockerfile.1      2022-10-26 21:13:11.927702796 +0000
+@@ -1,5 +1,5 @@
+-FROM ruby:2.2
+-RUN apt-get update -qq && apt-get install -y build-essential
++FROM alpine:3.4
++RUN apk update && apk add ruby-bundler ruby-json ruby-dev build-base
+
+ ENV APP_HOME /app
+ RUN mkdir $APP_HOME
+```
+
+Размер образа значительно уменьшился:
+```console
+> docker images r2d2k/comment
+REPOSITORY      TAG          IMAGE ID       CREATED              SIZE
+r2d2k/comment   2.2-alpine   e3c05b3dada6   44 seconds ago       189MB
+r2d2k/comment   2.0-alpine   e0b20e2aad8e   About a minute ago   189MB
+r2d2k/comment   1.0          5ed27e0339a7   4 hours ago          769MB
+```
+
+Запустим приложение:
+```console
+> docker run -d --network=reddit --network-alias=post_db --network-alias=comment_db mongo:5.0
+> docker run -d --network=reddit --network-alias=post r2d2k/post:1.0
+> docker run -d --network=reddit --network-alias=comment r2d2k/comment:2.2-alpine
+> docker run -d --network=reddit -p 9292:9292 r2d2k/ui:3.1-alpine
+
+> docker ps
+CONTAINER ID   IMAGE                      COMMAND                  CREATED          STATUS          PORTS                                       NAMES
+8711fb05d8a0   r2d2k/ui:3.1-alpine        "puma"                   9 seconds ago    Up 7 seconds    0.0.0.0:9292->9292/tcp, :::9292->9292/tcp   quirky_archimedes
+5fe2f10847be   r2d2k/comment:2.2-alpine   "puma"                   11 seconds ago   Up 9 seconds                                                focused_matsumoto
+cb5cbe4136ff   r2d2k/post:1.0             "python3 post_app.py"    13 seconds ago   Up 11 seconds                                               reverent_franklin
+d34d689c91c1   mongo:5.0                  "docker-entrypoint.s…"   18 seconds ago   Up 13 seconds   27017/tcp                                   blissful_chandrasekhar
+```
+
+Проверим, что всё работает:
+```console
+> lynx -dump http://127.0.0.1:9292
+   (BUTTON) [1]Microservices Reddit in 8711fb05d8a0 container
+
+Menu
+
+     * [2]All posts
+     * [3]New post
+
+References
+
+   1. http://127.0.0.1:9292/
+   2. http://127.0.0.1:9292/
+   3. http://127.0.0.1:9292/new
+```
+
+Всё работает, но список постов пуст. При перезапуске контейнера с базой данных все записи пропали.
+Для постоянного хранения данных контейнера можно использовать `Docker volume`.
+
+Создаём `Docker volume`, перезапускаем контейнер базы с ним:
+```console
+> docker volume create reddit_db
+reddit_db
+
+> docker rm -f d34d689c91c1
+d34d689c91c1
+
+> docker run -d --network=reddit --network-alias=post_db --network-alias=comment_db -v reddit_db:/data/db mongo:5.0
+
+> docker ps
+CONTAINER ID   IMAGE                      COMMAND                  CREATED          STATUS          PORTS                                       NAMES
+fa116790680b   mongo:5.0                  "docker-entrypoint.s…"   20 seconds ago   Up 18 seconds   27017/tcp                                   epic_galois
+8711fb05d8a0   r2d2k/ui:3.1-alpine        "puma"                   8 minutes ago    Up 8 minutes    0.0.0.0:9292->9292/tcp, :::9292->9292/tcp   quirky_archimedes
+5fe2f10847be   r2d2k/comment:2.2-alpine   "puma"                   8 minutes ago    Up 8 minutes                                                focused_matsumoto
+cb5cbe4136ff   r2d2k/post:1.0             "python3 post_app.py"    8 minutes ago    Up 8 minutes                                                reverent_franklin
+```
+
+Создадим запись в приложении через браузер, проверим, что запись на месте:
+```console
+> lynx -dump http://127.0.0.1:9292
+   (BUTTON) [1]Microservices Reddit in 8711fb05d8a0 container
+   (BUTTON)
+0
+   (BUTTON)
+
+[2]Yandex
+26-10-2022
+21:38
+
+   [3]Go to the link
+
+Menu
+
+     * [4]All posts
+     * [5]New post
+
+References
+
+   1. http://127.0.0.1:9292/
+   2. http://127.0.0.1:9292/post/6359a8c9c4c60c000e04e36e
+   3. http://yandex.ru/
+   4. http://127.0.0.1:9292/
+   5. http://127.0.0.1:9292/new
+
+```
+
+Перезапустим контейнер с базой, проверим, что запись не исчезла:
+```console
+> docker stop fa116790680b
+fa116790680b
+
+> docker start fa116790680b
+fa116790680b
+
+> lynx -dump http://127.0.0.1:9292
+   (BUTTON) [1]Microservices Reddit in 8711fb05d8a0 container
+   (BUTTON)
+0
+   (BUTTON)
+
+[2]Yandex
+26-10-2022
+21:38
+
+   [3]Go to the link
+
+Menu
+
+     * [4]All posts
+     * [5]New post
+
+References
+
+   1. http://127.0.0.1:9292/
+   2. http://127.0.0.1:9292/post/6359a8c9c4c60c000e04e36e
+   3. http://yandex.ru/
+   4. http://127.0.0.1:9292/
+   5. http://127.0.0.1:9292/new
+```
+
+Всё работает.
+
+**Результат №02-3:**
+ - Мы уменьшили размер образа за счёт использования более компактного базового образа
+ - Мы сохранили данные контейнера между перезапусками, за счёт использования `Docker volume`
 
 ---
