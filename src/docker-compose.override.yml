@@ -1,31 +1,15 @@
 version: '3.3'
 services:
   ui:
-    build: ./ui
-    image: ${USERNAME}/ui:1.0
     command: puma --debug -w 2
     volumes:
       - ./ui:/app
-    ports:
-      - ${UI_PORT}:9292/tcp
-    networks:
-      - front_net
 
   post:
-    build: ./post-py
-    image: ${USERNAME}/post:1.0
     volumes:
       - ./post-py:/app
-    networks:
-      - back_net
-      - front_net
 
   comment:
-    build: ./comment
-    image: ${USERNAME}/comment:1.0
     command: puma --debug -w 2
     volumes:
       - ./comment:/app
-    networks:
-      - back_net
-      - front_net
