@@ -1,0 +1,11 @@
+variables.json
+
+*.tfstate
+*.tfstate.*.backup
+*.tfstate.backup
+*.tfvars
+*.tfbackend
+.terraform/
+terraform-key.json
+ansible-key.json
+yc.yml
