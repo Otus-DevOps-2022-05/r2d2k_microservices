@@ -9,3 +9,4 @@ variables.json
 terraform-key.json
 ansible-key.json
 yc.yml
+.env
