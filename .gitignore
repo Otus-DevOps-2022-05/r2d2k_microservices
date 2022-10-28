@@ -8,5 +8,6 @@ variables.json
 .terraform/
 terraform-key.json
 ansible-key.json
+packer-key.json
 yc.yml
 .env
