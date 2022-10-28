@@ -11,3 +11,4 @@ ansible-key.json
 packer-key.json
 yc.yml
 .env
+*.pkrvars.hcl
