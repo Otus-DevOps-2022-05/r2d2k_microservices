@@ -7,6 +7,8 @@
 - [02 - Docker-образы. Микросервисы](#02---docker-%D0%BE%D0%B1%D1%80%D0%B0%D0%B7%D1%8B-%D0%9C%D0%B8%D0%BA%D1%80%D0%BE%D1%81%D0%B5%D1%80%D0%B2%D0%B8%D1%81%D1%8B)
 - [03 - Docker: сети, docker-compose](#03---docker-%D1%81%D0%B5%D1%82%D0%B8-docker-compose)
 - [04 - Устройство Gitlab CI. Построение процесса непрерывной поставки](#04---%D0%A3%D1%81%D1%82%D1%80%D0%BE%D0%B9%D1%81%D1%82%D0%B2%D0%BE-gitlab-ci-%D0%9F%D0%BE%D1%81%D1%82%D1%80%D0%BE%D0%B5%D0%BD%D0%B8%D0%B5-%D0%BF%D1%80%D0%BE%D1%86%D0%B5%D1%81%D1%81%D0%B0-%D0%BD%D0%B5%D0%BF%D1%80%D0%B5%D1%80%D1%8B%D0%B2%D0%BD%D0%BE%D0%B9-%D0%BF%D0%BE%D1%81%D1%82%D0%B0%D0%B2%D0%BA%D0%B8)
+- [05 - Введение в мониторинг. Системы мониторинга.](#05---%D0%92%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5-%D0%B2-%D0%BC%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3-%D0%A1%D0%B8%D1%81%D1%82%D0%B5%D0%BC%D1%8B-%D0%BC%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%D0%B0)
+- [```yaml](#yaml)
 
 <!-- /MarkdownTOC -->
 
@@ -4211,3 +4213,245 @@ index 90138c8..c7ed2e6 100644
  - Работу оповещений можно увидеть по [этой](https://app.slack.com/client/T6HR0TUP3/C03LBLPEGDA) ссылке.
 
  ---
+
+## 05 - Введение в мониторинг. Системы мониторинга.
+
+**Задание №05-1:**
+ - Prometheus: запуск, конфигурация, знакомство с Web UI
+ - Мониторинг состояния микросервисов
+ - Сбор метрик хоста с использованием экспортера
+
+**Решение №05-1:**
+
+Создаём новую ветку `git checkout -b monitoring-1`.
+Готовим окружение, нам нужен сервер с установленным `docker`. Возьмём описание сервера из предыдущего задания, поднимем его при помощи `terraform`.
+После запуска сервера заходим на него по `ssh`, запускаем `prometheus`:
+```console
+> sudo docker run --rm -p 9090:9090 -d --name prometheus prom/prometheus
+Unable to find image 'prom/prometheus:latest' locally
+latest: Pulling from prom/prometheus
+50783e0dfb64: Pull complete
+daafb1bca260: Pull complete
+72d3569fdc6f: Pull complete
+13afa930da33: Pull complete
+6ef28183cda8: Pull complete
+4ad7245dbb40: Pull complete
+26e6063b72b5: Pull complete
+d859dd8f8ba9: Pull complete
+583221d3597c: Pull complete
+b4e477a4eb49: Pull complete
+0b0ad5fc938d: Pull complete
+53ddffa5a7d1: Pull complete
+Digest: sha256:4748e26f9369ee7270a7cd3fb9385c1adb441c05792ce2bce2f6dd622fd91d38
+Status: Downloaded newer image for prom/prometheus:latest
+b7a22bf74cb765380384fcc1689dd96f47ab36583d408be64480bfef68e0b73f
+```
+
+Сервер слушает на порту `9090`, подключаемся, видим веб-интерфейс `prometheus`.
+По умолчанию уже собираются метрики самой системы мониторинга. Можем посмотреть информацию о версии продукта:
+```console
+prometheus_build_info{branch="HEAD", goversion="go1.19.2", instance="localhost:9090", job="prometheus", revision="dcd6af9e0d56165c6f5c64ebbc1fae798d24933a", version="2.39.1"}
+```
+
+Создадим простой `prometheus/Dockerfile`:
+```Dockerfile
+FROM prom/prometheus:v2.1.0
+ADD prometheus.yml /etc/prometheus/
+```
+
+Сам файл конфигурации `prometheus.yml` будет выглядеть так:
+```yaml
+---
+global:
+  scrape_interval: '5s'
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets:
+        - 'localhost:9090'
+
+  - job_name: 'ui'
+    static_configs:
+      - targets:
+        - 'ui:9292'
+
+  - job_name: 'comment'
+    static_configs:
+      - targets:
+        - 'comment:9292'
+```
+
+Собираем образ:
+```console
+> docker build -t r2d2k/prometheus .
+Sending build context to Docker daemon  3.072kB
+Step 1/2 : FROM prom/prometheus:v2.1.0
+v2.1.0: Pulling from prom/prometheus
+Image docker.io/prom/prometheus:v2.1.0 uses outdated schema1 manifest format. Please upgrade to a schema2 image for better future compatibility. More information at https://docs.docker.com/registry/spec/deprecated-schema-v1/
+aab39f0bc16d: Pull complete
+a3ed95caeb02: Pull complete
+2cd9e239cea6: Pull complete
+48afad9e6cdd: Pull complete
+8fb7aa0e1c16: Pull complete
+3b9d4fd63760: Pull complete
+57a87cf4a659: Pull complete
+9a31588e38ae: Pull complete
+7a0ac0080f04: Pull complete
+659e24e6d37f: Pull complete
+Digest: sha256:7b987901dbc44d17a88e7bda42dbbbb743c161e3152662959acd9f35aeefb9a3
+Status: Downloaded newer image for prom/prometheus:v2.1.0
+ ---> c8ecf7c719c1
+Step 2/2 : ADD prometheus.yml /etc/prometheus/
+ ---> fca39e0c1f75
+Successfully built fca39e0c1f75
+Successfully tagged r2d2k/prometheus:latest
+```
+
+Собираем образы всех приложений:
+```console
+/src/ui $ bash docker_build.sh
+/src/post-py $ bash docker_build.sh
+/src/comment $ bash docker_build.sh
+```
+
+После сборки получаем такой результат:
+```console
+> docker images
+REPOSITORY      TAG            IMAGE ID       CREATED              SIZE
+r2d2k/comment   latest         eb80e04347b7   11 seconds ago       769MB
+r2d2k/post      latest         44874e613120   About a minute ago   121MB
+r2d2k/ui        latest         ca343ac78a70   3 minutes ago        464MB
+ubuntu          16.04          b6f507652425   14 months ago        135MB
+ruby            2.2            6c8e6f9667b2   4 years ago          715MB
+python          3.6.0-alpine   cb178ebbf0f2   5 years ago          88.6MB
+```
+
+Обновляем `docker-compose.yml`, добавив в него сервис `prometheus`:
+```yaml
+services:
+  post_db:
+    image: mongo:3.2
+    volumes:
+      - post_db:/data/db
+    networks:
+      - back_net
+
+  ui:
+    image: ${USERNAME}/ui:latest
+    ports:
+      - ${UI_PORT}:9292/tcp
+    networks:
+      - front_net
+
+  post:
+    image: ${USERNAME}/post:latest
+    networks:
+      - back_net
+      - front_net
+
+  comment:
+    image: ${USERNAME}/comment:latest
+    networks:
+      - back_net
+      - front_net
+
+  prometheus:
+    image: ${USERNAME}/prometheus:latest
+    ports:
+      - '9090:9090'
+    volumes:
+      - prometheus_data:/prometheus
+    command: # Передаем доп параметры в командной строке
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention=1d' # Задаем время хранения метрик в 1 день
+    networks:
+      - front_net
+      - back_net
+
+volumes:
+  post_db:
+  prometheus_data:
+
+networks:
+  front_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.1.0/24
+
+  back_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.2.0/24
+```
+
+Поднимаем связку:
+```console
+> docker compose up -d
+[+] Running 9/9
+ ⠿ Network r2d2k_back_net          Created                                  0.2s
+ ⠿ Network r2d2k_front_net         Created                                  0.1s
+ ⠿ Volume "r2d2k_prometheus_data"  Crea...                                  0.0s
+ ⠿ Volume "r2d2k_post_db"          Created                                  0.0s
+ ⠿ Container r2d2k-comment-1       Started                                  2.0s
+ ⠿ Container r2d2k-prometheus-1    Starte...                                1.8s
+ ⠿ Container r2d2k-post_db-1       Started                                  1.6s
+ ⠿ Container r2d2k-ui-1            Started                                  1.0s
+ ⠿ Container r2d2k-post-1          Started                                  1.4s
+```
+
+Проверим приложение:
+```console
+> lynx -dump http://127.0.0.1:9292
+   (BUTTON) [1]Microservices Reddit in d8a6f992662c container
+
+Menu
+
+     * [2]All posts
+     * [3]New post
+
+References
+
+   1. http://127.0.0.1:9292/
+   2. http://127.0.0.1:9292/
+   3. http://127.0.0.1:9292/new
+```
+
+Проверяем доступность метрик в интерфейсе `prometheus`.
+Для сбора информации о другиз сущностях можно использовать экспортёры `prometheus`, которых написано великое множество.
+Добавим в наш `docker-compose.yml` `node-exporter`, который позволит собирать данные о хосте:
+```patch
++  node-exporter:
++    image: prom/node-exporter:v0.15.2
++    user: root
++    volumes:
++      - /proc:/host/proc:ro
++      - /sys:/host/sys:ro
++      - /:/rootfs:ro
++    command:
++      - '--path.procfs=/host/proc'
++      - '--path.sysfs=/host/sys'
++      - '--collector.filesystem.ignored-mount-points="^/(sys|proc|dev|host|etc)($$|/)"'
++
+```
+
+В конфиг `prometheus` добавляем новую секцию:
+```patch
++
++  - job_name: 'node'
++    static_configs:
++      - targets:
++        - 'node-exporter:9292'
+```
+
+Перезапускаем наши сервисы, проверяем, что в `prometheus` появились новые данные.
+
+
+
+
+
+
+**Решение №05-1:**
