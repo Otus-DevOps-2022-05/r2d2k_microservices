@@ -33,7 +33,7 @@ reddit_run:
 test_unit_job:
   stage: test
   services:
-    - mongo:3.2
+    - mongo:latest
   script:
     - ruby simpletest.rb
 
