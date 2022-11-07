@@ -57,6 +57,17 @@ services:
       - front_net
       - back_net
 
+  mongo-exporter:
+    image: percona/mongodb_exporter:0.35
+    command:
+      - '--mongodb.uri=mongodb://post_db:27017'
+      - '--collect-all'
+      - '--log.level=debug'
+    ports:
+      - '9216:9216'
+    networks:
+      - back_net
+
 volumes:
   post_db:
   prometheus_data:
