@@ -68,6 +68,13 @@ services:
     networks:
       - back_net
 
+  blackbox-exporter:
+    image: r2d2k/blackbox-exporter:1.0
+    ports:
+      - '9115:9115'
+    networks:
+      - front_net
+
 volumes:
   post_db:
   prometheus_data:
