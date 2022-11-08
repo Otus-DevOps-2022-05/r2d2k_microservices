@@ -8,7 +8,6 @@
 - [03 - Docker: сети, docker-compose](#03---docker-%D1%81%D0%B5%D1%82%D0%B8-docker-compose)
 - [04 - Устройство Gitlab CI. Построение процесса непрерывной поставки](#04---%D0%A3%D1%81%D1%82%D1%80%D0%BE%D0%B9%D1%81%D1%82%D0%B2%D0%BE-gitlab-ci-%D0%9F%D0%BE%D1%81%D1%82%D1%80%D0%BE%D0%B5%D0%BD%D0%B8%D0%B5-%D0%BF%D1%80%D0%BE%D1%86%D0%B5%D1%81%D1%81%D0%B0-%D0%BD%D0%B5%D0%BF%D1%80%D0%B5%D1%80%D1%8B%D0%B2%D0%BD%D0%BE%D0%B9-%D0%BF%D0%BE%D1%81%D1%82%D0%B0%D0%B2%D0%BA%D0%B8)
 - [05 - Введение в мониторинг. Системы мониторинга.](#05---%D0%92%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5-%D0%B2-%D0%BC%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3-%D0%A1%D0%B8%D1%81%D1%82%D0%B5%D0%BC%D1%8B-%D0%BC%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%D0%B0)
-- [```yaml](#yaml)
 
 <!-- /MarkdownTOC -->
 
@@ -4261,7 +4260,6 @@ ADD prometheus.yml /etc/prometheus/
 
 Сам файл конфигурации `prometheus.yml` будет выглядеть так:
 ```yaml
----
 global:
   scrape_interval: '5s'
 
@@ -4421,7 +4419,7 @@ References
 ```
 
 Проверяем доступность метрик в интерфейсе `prometheus`.
-Для сбора информации о другиз сущностях можно использовать экспортёры `prometheus`, которых написано великое множество.
+Для сбора информации о других сущностях можно использовать экспортёры `prometheus`, которых написано великое множество.
 Добавим в наш `docker-compose.yml` `node-exporter`, который позволит собирать данные о хосте:
 ```patch
 +  node-exporter:
@@ -4444,14 +4442,275 @@ References
 +  - job_name: 'node'
 +    static_configs:
 +      - targets:
-+        - 'node-exporter:9292'
++        - 'node-exporter:9100'
+```
+Собираем образ с `prometheus`, перезапускаем наши сервисы, проверяем, что в `prometheus` появились новые данные.
+
+Все собранные образы пушим в `registry`:
+```console
+> docker login
+Login Succeeded
+
+> docker push $USER_NAME/ui
+> docker push $USER_NAME/comment
+> docker push $USER_NAME/post
+> docker push $USER_NAME/prometheus
 ```
 
-Перезапускаем наши сервисы, проверяем, что в `prometheus` появились новые данные.
+Образы доступны по [ссылке](https://hub.docker.com/u/r2d2k).
 
+**Результат №05-1:**
+ - Собраны образы с экспортом метрик
+ - Собран образ `prometheus` с преднастроенным конфигом
+ - Подготовлен конфигурационный файл для `docker-compose`, позволяющий запустить все сервисы и мониторинг к ним
 
+---
 
+**Задание №05-2:**
+ - Добавьте в Prometheus мониторинг MongoDB с использованием необходимого экспортера
+ - Версию образа экспортера нужно фиксировать на последнюю стабильную версию
+ - Если будете добавлять для него Dockerfile, он должен быть в директории monitoring, а не в корне репозитория
 
+**Решение №05-2:**
 
+Попробуем использовать [mongodb_exporter](https://github.com/percona/mongodb_exporter).
+Есть вариант в виде образа `docker`, проверим его. После чтения документации по ссылке выше внесём изменения в наш `docker-compose.yml`:
+```patch
++  mongo-exporter:
++    image: percona/mongodb_exporter:0.35
++    command:
++      - '--mongodb.uri=mongodb://post_db:27017'
++      - '--collect-all'
++      - '--log.level=debug'
++    ports:
++      - '9216:9216'
++    networks:
++      - back_net
++
+```
 
-**Решение №05-1:**
+В строке с образом фиксируем версию экспортёра. В параметрах команды указываем адрес сервера `mongodb`, список собираемых параметров.
+В файл конфигурации `prometheus` также добавим опрос новых параметров:
+```patch
++
++  - job_name: 'mongodb'
++    static_configs:
++      - targets:
++        - 'mongo-exporter:9216'
+```
+
+Собираем образ и поднимаем весь комплект при помощи `docker compose up -d`.
+Проверим, отдаёт ли экспортёр метрики:
+```console
+> lynx -dump http://127.0.0.1:9216/metrics | grep mongodb | wc
+   2300    6961  167231
+```
+
+Видим 2300 параметров с упоминанием `mongodb`. В интерфейсе `prometheus` появился `mongo-exporter` в статусе `up`.
+
+**Результат №05-2:**
+Для сбора метрик `mongodb` был использован отдельный контейнер, вмешательства в образ `mongodb` не потребовалось.
+
+---
+
+**Задание №05-3:**
+ - Добавьте в Prometheus мониторинг сервисов `comment`, `post`, `ui` с помощью `blackbox` экспортера
+ - Версию образа экспортера нужно фиксировать на последнюю стабильную версию
+ - Если будете добавлять для него Dockerfile, он должен быть в директории monitoring, а не в корне репозитория
+
+**Решение №05-3:**
+
+Идём на [страницу](https://github.com/prometheus/blackbox_exporter/releases) разработчика и качаем последний релиз продукта.
+Создаём папку `blackbox-exporter`, распаковываем в неё содержимое архива. Из файла конфигурации `blackbox.yml` вырезаем всё лишнее:
+```yaml
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      valid_status_codes: []
+      method: GET
+```
+
+Подготовим `Dockerfile` для сборки контейнера:
+```Dockerfile
+FROM scratch
+COPY blackbox_exporter  /bin/blackbox_exporter
+COPY blackbox.yml       /etc/blackbox_exporter/config.yml
+
+EXPOSE      9115
+ENTRYPOINT  [ "/bin/blackbox_exporter" ]
+CMD         [ "--config.file=/etc/blackbox_exporter/config.yml" ]
+```
+
+Собираем образ:
+```console
+> docker build -t r2d2k/blackbox-exporter .
+Sending build context to Docker daemon  20.75MB
+Step 1/6 : FROM scratch
+ --->
+Step 2/6 : COPY blackbox_exporter  /bin/blackbox_exporter
+ ---> e30c5d8b7c84
+Step 3/6 : COPY blackbox.yml       /etc/blackbox_exporter/config.yml
+ ---> 5480d381f219
+Step 4/6 : EXPOSE      9115
+ ---> Running in 050e4b77aeb6
+Removing intermediate container 050e4b77aeb6
+ ---> 0f2622c25a07
+Step 5/6 : ENTRYPOINT  [ "/bin/blackbox_exporter" ]
+ ---> Running in c6026a8e647e
+Removing intermediate container c6026a8e647e
+ ---> 79327d6d92df
+Step 6/6 : CMD         [ "--config.file=/etc/blackbox_exporter/config.yml" ]
+ ---> Running in d45bf82883b3
+Removing intermediate container d45bf82883b3
+ ---> 8d2fdebb3ecf
+Successfully built 8d2fdebb3ecf
+Successfully tagged r2d2k/blackbox-exporter:latest
+
+> docker tag r2d2k/blackbox-exporter:latest r2d2k/blackbox-exporter:1.0
+```
+
+У нас получился образ размером в 20 МБ:
+```console
+> docker images
+REPOSITORY                 TAG            IMAGE ID       CREATED                 SIZE
+r2d2k/blackbox-exporter    1.0            8d2fdebb3ecf   over 9000 seconds ago   20.7MB
+r2d2k/blackbox-exporter    latest         8d2fdebb3ecf   over 9000 seconds ago   20.7MB
+```
+
+Добавляем ещё один контейнер в наш `docker-compose.yml`:
+```patch
++  blackbox-exporter:
++    image: r2d2k/blackbox-exporter:1.0
++    ports:
++      - '9115:9115'
++    networks:
++      - front_net
++
+```
+
+В файл конфигурации `prometheus` добавим опрос контейнеров через `blackbox-exporter`:
+```patch
++  - job_name: 'blackbox-exporter'
++    metrics_path: /probe
++    params:
++      module: [http_2xx]
++    static_configs:
++      - targets:
++        - http://comment:9292/healthcheck
++        - http://post:5000/healthcheck
++        - http://ui:9292/healthcheck
++    relabel_configs:
++      - source_labels: [__address__]
++        target_label: __param_target
++      - source_labels: [__param_target]
++        target_label: instance
++      - target_label: __address__
++        replacement: blackbox-exporter:9115
+```
+
+По исходникам видно, что у каждого из сервисов есть endpoint для проверки здоровья.
+Пересобираем образ, запускаем весь стек и видим, что новые цели мониторинга добавлены и опрашиваются.
+По запросу `probe_success` в веб-интерфейсе `prometheus` видим следующий результат:
+```console
+probe_success{instance="http://comment:9292/healthcheck",job="blackbox-exporter"}   1
+probe_success{instance="http://post:5000/healthcheck",job="blackbox-exporter"}      1
+probe_success{instance="http://ui:9292/healthcheck",job="blackbox-exporter"}        1
+```
+
+**Результат №05-3:**
+Собрали отдельный образ с `blackbox-exporter`, запустили в отдельном контейнере и мониторим состояние трёх сервисов.
+
+---
+
+**Задание №05-4:**
+
+Написать `Makefile`, который умеет:
+ - Билдить любой или все образы, которые сейчас используются
+ - Умеет пушить их в докер хаб
+
+**Решение №05-4:**
+Идём, читаем [документацию](http://www.linuxlib.ru/prog/make_379_manual.html).
+Она довольно старая, но для нашего случая это не имеет значения.
+Структура каталога `src` у нас следующая:
+```console
+.
+├── comment
+│   ├── build_info.txt
+│   ├── comment_app.rb
+│   ├── config.ru
+│   ├── docker_build.sh
+│   ├── Dockerfile
+│   ├── Dockerfile.1
+│   ├── Dockerfile.2
+│   ├── Gemfile
+│   ├── Gemfile.lock
+│   ├── helpers.rb
+│   ├── Makefile
+│   └── VERSION
+├── post-py
+│   ├── build_info.txt
+│   ├── docker_build.sh
+│   ├── Dockerfile
+│   ├── helpers.py
+│   ├── Makefile
+│   ├── post_app.py
+│   ├── requirements.txt
+│   └── VERSION
+├── ui
+│   ├── views
+│   ├── build_info.txt
+│   ├── config.ru
+│   ├── docker_build.sh
+│   ├── Dockerfile
+│   ├── Dockerfile.1
+│   ├── Dockerfile.2
+│   ├── Gemfile
+│   ├── Gemfile.lock
+│   ├── helpers.rb
+│   ├── Makefile
+│   ├── middleware.rb
+│   ├── ui_app.rb
+│   └── VERSION
+├── docker-compose.override.yml
+├── docker-compose.yml
+├── Makefile
+└── README.md
+```
+
+В каждом дочернем каталоге созадим `Makefile` следующего содержания (с учётом имени сервиса):
+```Makefile
+.PHONY: build push
+
+build:
+        docker build -t r2d2k/comment .
+
+push:
+        docker push r2d2k/comment
+```
+
+В корне родительского каталога создаём общий `Makefile`:
+```Makefile
+.PHONY: build push
+
+build:
+        $(MAKE) -C comment
+        $(MAKE) -C post-py
+        $(MAKE) -C ui
+
+push:
+        $(MAKE) push -C comment
+        $(MAKE) push -C post-py
+        $(MAKE) push -C ui
+```
+
+Файлы без особых излишеств, просто *делают* свою работу)
+Для сборки отдельного образа выполняем `make` в соответствующем каталоге.
+Для пуша в докер хаб говорим `make push`.
+Эти же команды в родительском каталоге будут действовать на все три сервиса.
+
+**Результат №05-4:**
+ - Автоматизировали процесс сборки докер образов при помощи `make`
+
+ ---
