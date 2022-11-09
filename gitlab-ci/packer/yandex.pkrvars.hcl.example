@@ -1,0 +1,5 @@
+mv_service_account_key_file = "key.json"
+mv_folder_id                = "WYDIWYG"
+mv_source_image_family      = "ubuntu-2204-lts"
+mv_image_family             = "ubuntu-docker"
+mv_username                 = "ubuntu"

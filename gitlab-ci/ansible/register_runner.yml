@@ -1,0 +1,51 @@
+- name: Got runner
+  hosts: all
+  become: yes
+  vars:
+    url: "http://84.252.128.119/"
+    name: "DockerRunner"
+    docker_image: "alpine:latest"
+    token: "GR13489414ApxCsr63cLavyuDh384"
+    tag_list: "linux,xenial,ubuntu,docker"
+  tasks:
+
+    - name: Create dirs for volumes
+      file:
+        name: "/srv/gitlab-runnner/config"
+        state: directory
+        owner: root
+        group: root
+
+    - name: Install PIP
+      apt:
+        name: python3-pip
+        state: present
+
+    - name: Install Docker SDK for Python
+      pip:
+        name: docker
+        state: present
+
+    - name: Run gitlab-runner
+      community.docker.docker_container:
+        name: gitlab-runner
+        hostname: gitlab-runner
+        image: gitlab/gitlab-runner:alpine-v15.5.0
+        state: started
+        restart_policy: unless-stopped
+        container_default_behavior: "no_defaults"
+        volumes:
+          - "/srv/gitlab-runnner/config:/etc/gitlab-runnner"
+          - "/var/run/docker.sock:/var/run/docker.sock"
+
+    - name: Register runner
+      community.docker.docker_container_exec:
+        container: gitlab-runner
+        command: gitlab-runner register --url {{ url }} --non-interactive --locked=false --name={{ name }} --executor docker --docker-image {{ docker_image }} --registration-token {{ token }} --tag-list={{ tag_list }} --run-untagged
+      register: result
+      tags: [ never, register ]
+
+    - name: Print result
+      debug:
+        var: result.stderr_lines
+      tags: [ never, register ]
