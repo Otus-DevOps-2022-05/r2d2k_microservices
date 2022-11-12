@@ -27,3 +27,19 @@ services:
     image: openzipkin/zipkin:2.21.0
     ports:
       - "9411:9411"
+    networks:
+      - front_net
+      - back_net
+
+networks:
+  front_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.1.0/24
+
+  back_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.0.2.0/24
