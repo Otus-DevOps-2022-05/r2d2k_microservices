@@ -23,4 +23,4 @@ spec:
         name: post
         env:
         - name: POST_DATABASE_HOST
-          value: mongodb
+          value: post-db
