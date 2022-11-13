@@ -1,17 +1,22 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: Deployment	# Deploy metadata
 metadata:
-  name: ui-deployment
-spec:
-  replicas: 1
+  name: ui
+  labels:
+    app: reddit
+    component: ui
+spec:			# Deploy specification
+  replicas: 3
   selector:
     matchLabels:
-      app: ui
-  template:
+      app: reddit
+      component: ui
+  template:		# Pod description
     metadata:
-      name: ui
+      name: ui-pod
       labels:
-        app: ui
+        app: reddit
+        component: ui
     spec:
       containers:
       - image: r2d2k/ui
