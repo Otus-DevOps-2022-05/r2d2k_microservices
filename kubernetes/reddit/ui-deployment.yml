@@ -21,3 +21,8 @@ spec:			# Deploy specification
       containers:
       - image: r2d2k/ui
         name: ui
+        env:
+        - name: ENV
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
