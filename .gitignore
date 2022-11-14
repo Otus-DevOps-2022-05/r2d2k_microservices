@@ -12,3 +12,6 @@ packer-key.json
 yc.yml
 .env
 *.pkrvars.hcl
+
+tls.crt
+tls.key
