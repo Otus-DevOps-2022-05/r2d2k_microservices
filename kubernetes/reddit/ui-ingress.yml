@@ -4,6 +4,8 @@ metadata:
   name: ui
 spec:
   ingressClassName: nginx
+  tls:
+  - secretName: ui-ingress
   rules:
   - http:
       paths:
