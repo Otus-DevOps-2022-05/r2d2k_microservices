@@ -1,0 +1,9 @@
+service:
+  internalPort: 5000
+  externalPort: 5000
+
+image:
+  repository: r2d2k/post
+  tag: latest
+
+databaseHost:
