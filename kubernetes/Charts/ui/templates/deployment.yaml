@@ -22,8 +22,10 @@ spec:			# Deploy specification
         release: {{ .Release.Name }}
     spec:
       containers:
-      - image: r2d2k/ui
+      - image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
         name: ui
+        ports:
+          - containerPort: {{ .Values.service.internalPort }}
         env:
         - name: ENV
           valueFrom:
