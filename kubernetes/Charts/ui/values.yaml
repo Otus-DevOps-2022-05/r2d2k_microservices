@@ -4,3 +4,10 @@ service:
 image:
   repository: r2d2k/ui
   tag: latest
+ingress:
+  class: nginx
+
+postHost:
+postPort:
+commentHost:
+commentPort:

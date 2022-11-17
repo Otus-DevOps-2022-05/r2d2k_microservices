@@ -1,0 +1,20 @@
+comment:
+  image:
+    repository: r2d2k/comment
+    tag: latest
+  service:
+    externalPort: 9292
+
+post:
+  image:
+    repository: r2d2k/post
+    tag: latest
+  service:
+    externalPort: 5000
+
+ui:
+  image:
+    repository: r2d2k/ui
+    tag: latest
+  service:
+    externalPort: 9292

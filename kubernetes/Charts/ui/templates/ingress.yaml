@@ -2,12 +2,8 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ template "ui.fullname" . }}
-  annotations:
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
 spec:
-  ingressClassName: nginx
-  tls:
-  - secretName: ui-ingress
+  ingressClassName: {{ .Values.ingress.class }}
   rules:
   - http:
       paths:
