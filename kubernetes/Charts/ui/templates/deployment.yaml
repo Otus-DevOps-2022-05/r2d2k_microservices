@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment	# Deploy metadata
 metadata:
-  name: {{ .Release.Name }}-{{ .Chart.Name }}
+  name: {{ template "ui.fullname" . }}
   labels:
     app: reddit
     component: ui
