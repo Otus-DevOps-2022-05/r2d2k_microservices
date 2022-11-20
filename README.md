@@ -8,7 +8,8 @@
 - [03 - Docker: сети, docker-compose](#03---docker-%D1%81%D0%B5%D1%82%D0%B8-docker-compose)
 - [04 - Устройство Gitlab CI. Построение процесса непрерывной поставки](#04---%D0%A3%D1%81%D1%82%D1%80%D0%BE%D0%B9%D1%81%D1%82%D0%B2%D0%BE-gitlab-ci-%D0%9F%D0%BE%D1%81%D1%82%D1%80%D0%BE%D0%B5%D0%BD%D0%B8%D0%B5-%D0%BF%D1%80%D0%BE%D1%86%D0%B5%D1%81%D1%81%D0%B0-%D0%BD%D0%B5%D0%BF%D1%80%D0%B5%D1%80%D1%8B%D0%B2%D0%BD%D0%BE%D0%B9-%D0%BF%D0%BE%D1%81%D1%82%D0%B0%D0%B2%D0%BA%D0%B8)
 - [05 - Введение в мониторинг. Системы мониторинга.](#05---%D0%92%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5-%D0%B2-%D0%BC%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3-%D0%A1%D0%B8%D1%81%D1%82%D0%B5%D0%BC%D1%8B-%D0%BC%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%D0%B0)
-- [05 - Логирование и распределенная трассировка](#05---%D0%9B%D0%BE%D0%B3%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-%D0%B8-%D1%80%D0%B0%D1%81%D0%BF%D1%80%D0%B5%D0%B4%D0%B5%D0%BB%D0%B5%D0%BD%D0%BD%D0%B0%D1%8F-%D1%82%D1%80%D0%B0%D1%81%D1%81%D0%B8%D1%80%D0%BE%D0%B2%D0%BA%D0%B0)
+- [06 - Логирование и распределенная трассировка](#06---%D0%9B%D0%BE%D0%B3%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-%D0%B8-%D1%80%D0%B0%D1%81%D0%BF%D1%80%D0%B5%D0%B4%D0%B5%D0%BB%D0%B5%D0%BD%D0%BD%D0%B0%D1%8F-%D1%82%D1%80%D0%B0%D1%81%D1%81%D0%B8%D1%80%D0%BE%D0%B2%D0%BA%D0%B0)
+- [07 - Введение в kubernetes](#07---%D0%92%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5-%D0%B2-kubernetes)
 
 <!-- /MarkdownTOC -->
 
@@ -4716,7 +4717,7 @@ push:
 
  ---
 
-## 05 - Логирование и распределенная трассировка
+## 06 - Логирование и распределенная трассировка
 
 **Задание №06-1:**
  - Подготовка окружения
@@ -5482,5 +5483,288 @@ index 1441173..da062f0 100644
 
 **Результат №06-4:**
  - Задержка при открытии поста вызвана `time.sleep(3)` в функции `db_find_single_post` сервиса `post`.
+
+---
+
+## 07 - Введение в kubernetes
+
+**Задание №07-1:**
+ - Разобрать на практике все компоненты Kubernetes, развернуть их вручную используя kubeadm
+ - Ознакомиться с описанием основных примитивов нашего приложения и его дальнейшим запуском в Kubernetes
+
+**Решение №07-1:**
+
+Работу ведём в новой ветке `kubernetes-1`.
+
+Опишем приложение в контексте `Kubernetes` с помощью манифестов в формате `yaml`.
+Для каждого из четырёх сервисов создаём Deployment манифесты.
+
+Содержимое `post-deployment.yml`:
+```yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: post-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: post
+  template:
+    metadata:
+      name: post
+      labels:
+        app: post
+    spec:
+      containers:
+      - image: r2d2k/post
+        name: post
+```
+
+Содержимое `ui-deployment.yml`:
+```yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ui
+  template:
+    metadata:
+      name: ui
+      labels:
+        app: ui
+    spec:
+      containers:
+      - image: r2d2k/ui
+        name: ui
+```
+
+Содержимое `comment-deployment.yml`:
+```yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: comment-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: comment
+  template:
+    metadata:
+      name: comment
+      labels:
+        app: comment
+    spec:
+      containers:
+      - image: r2d2k/comment
+        name: comment
+```
+
+Содержимое `mongo-deployment.yml`:
+```yml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo
+  template:
+    metadata:
+      name: mongo
+      labels:
+        app: mongo
+    spec:
+      containers:
+      - image: mongo:3.2
+        name: mongo
+```
+
+Развернуть k8s предложено при помощи `kubeadm` на двух нодах следующей конфигурации:
+ - 4 GB RAM
+ - 4 vCPU
+ - 40 GB SSD
+
+Виртуальные машины создадим в облаке Яндекс при помощи `terraform`. У нас уже подготовлен образ с `docker`, его и возьмём за основу.
+Процедура неоднократно проводилась в предыдущих заданиях, поэтому не буду приводить подробности.
+
+На данный момент у нас есть две виртуальные машины с установленным `docker`. Разворачивать кластер будем при помощи `ansible`.
+Заготовку с динамическим инвентори возьмём из предыдущих заданий и убедимся, что всё функционирует как положено:
+```console
+> ansible all -m ping
+fhmugpmt4brksfmqcfnf.auto.internal | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+fhmct74c8394a74ghbu1.auto.internal | SUCCESS => {
+    "ansible_facts": {
+        "discovered_interpreter_python": "/usr/bin/python3"
+    },
+    "changed": false,
+    "ping": "pong"
+}
+```
+
+Читаем официальное [руководство](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/) по установке `kubeadm`, пишем плейбук.
+```yaml
+- name: k8s by kubeadm
+  hosts: all
+  become: true
+  tasks:
+
+  - name: Add k8s apt-key
+    apt_key:
+      url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+      state: present
+
+  - name: Add k8s repository
+    apt_repository:
+      repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+      state: present
+
+  - name: Install k8s utils
+    apt:
+      name: [kubelet, kubeadm, kubectl]
+      state: present
+      update_cache: true
+
+  - name: Install cri-dockerd
+    apt:
+      deb: https://github.com/Mirantis/cri-dockerd/releases/download/v0.2.6/cri-dockerd_0.2.6.3-0.ubuntu-jammy_amd64.deb
+      state: present
+
+
+- name: Main node tasks
+  hosts: fhmct74c8394a74ghbu1.auto.internal
+  become: true
+  tasks:
+
+  - name: Init master node
+    shell: kubeadm init --pod-network-cidr=10.244.0.0/16 --cri-socket unix://var/run/cri-dockerd.sock >> kubeadm_init.txt
+    args:
+      chdir: $HOME
+      creates: kubeadm_init.txt
+
+  - name: Create kubectl config dir
+    file:
+      path: /home/ubuntu/.kube
+      state: directory
+      owner: ubuntu
+      group: ubuntu
+      mode: 0755
+
+  - name: Copy config for kubectl
+    copy:
+      src: /etc/kubernetes/admin.conf
+      dest: /home/ubuntu/.kube/config
+      remote_src: true
+      owner: ubuntu
+      group: ubuntu
+      mode: 0600
+
+  - name: Get join command
+    shell: kubeadm token create --print-join-command
+    register: join_command_out
+
+  - name: Set join command
+    set_fact:
+      join_command: "{{ join_command_out.stdout_lines[0] }}"
+
+
+- name: Worker node tasks
+  hosts: fhmugpmt4brksfmqcfnf.auto.internal
+  become: true
+  tasks:
+
+  - name: Join cluster
+    shell: "{{ hostvars['fhmct74c8394a74ghbu1.auto.internal'].join_command }} --cri-socket unix://var/run/cri-dockerd.sock >> node_joined.txt"
+    args:
+      chdir: $HOME
+      creates: hode_joined.txt
+```
+
+После запуска плейбука проверим состояние кластера на основной ноде:
+```console
+$ kubectl get nodes
+NAME                   STATUS     ROLES           AGE   VERSION
+fhmct74c8394a74ghbu1   NotReady   control-plane   10m   v1.25.4
+fhmugpmt4brksfmqcfnf   NotReady   <none>          10s   v1.25.4
+```
+
+Проверяем состояние ноды при помощи `kubectl describe node ...`, видим такую ошибку:
+```console
+container runtime network not ready: NetworkReady=false reason:NetworkPluginNotReady message:docker: network plugin is not ready: cni config uninitialized
+```
+
+Как и описано в документации, устанавливаем `calico`:
+```console
+> kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+poddisruptionbudget.policy/calico-kube-controllers created
+serviceaccount/calico-kube-controllers created
+serviceaccount/calico-node created
+configmap/calico-config created
+customresourcedefinition.apiextensions.k8s.io/bgpconfigurations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/bgppeers.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/blockaffinities.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/caliconodestatuses.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/clusterinformations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/felixconfigurations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/globalnetworkpolicies.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/globalnetworksets.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/hostendpoints.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipamblocks.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipamconfigs.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipamhandles.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ippools.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/ipreservations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/kubecontrollersconfigurations.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/networkpolicies.crd.projectcalico.org created
+customresourcedefinition.apiextensions.k8s.io/networksets.crd.projectcalico.org created
+clusterrole.rbac.authorization.k8s.io/calico-kube-controllers created
+clusterrole.rbac.authorization.k8s.io/calico-node created
+clusterrolebinding.rbac.authorization.k8s.io/calico-kube-controllers created
+clusterrolebinding.rbac.authorization.k8s.io/calico-node created
+daemonset.apps/calico-node created
+deployment.apps/calico-kube-controllers created
+```
+
+Смотрим:
+```console
+> kubectl get nodes
+NAME                   STATUS   ROLES           AGE   VERSION
+fhmct74c8394a74ghbu1   Ready    control-plane   13m   v1.25.4
+fhmugpmt4brksfmqcfnf   Ready    <none>          13s   v1.25.4
+```
+
+Применяем созданные ранее манифесты при помощи `kubectl apply -f <manifest_name>.yml`.
+
+Проверяем результат:
+```console
+> kubectl get pods
+NAME                                 READY   STATUS    RESTARTS   AGE
+comment-deployment-7db9f6d87-47mqc   1/1     Running   0          38s
+mongo-deployment-797dcbffd4-dpr7k    1/1     Running   0          2m9s
+post-deployment-766cd985c7-r6whl     1/1     Running   0          42s
+ui-deployment-75c5849b5c-tsn4h       1/1     Running   0          34s
+```
+
+Просто замечательно.
+
+**Результат №07-1:**
+ - При помощи `terraform` созданы виртуальные машины для нод кластера
+ - При помощи `ansible` подготовлено окружение для кластера
+ - Кластер инициализирован при помощи `kubeadm`
+ - Ранее созданные манифесты применены к кластеру
+ - Поды запущены
 
 ---
