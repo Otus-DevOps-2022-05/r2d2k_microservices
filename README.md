@@ -8,6 +8,7 @@
 - [03 - Docker: сети, docker-compose](#03---docker-%D1%81%D0%B5%D1%82%D0%B8-docker-compose)
 - [04 - Устройство Gitlab CI. Построение процесса непрерывной поставки](#04---%D0%A3%D1%81%D1%82%D1%80%D0%BE%D0%B9%D1%81%D1%82%D0%B2%D0%BE-gitlab-ci-%D0%9F%D0%BE%D1%81%D1%82%D1%80%D0%BE%D0%B5%D0%BD%D0%B8%D0%B5-%D0%BF%D1%80%D0%BE%D1%86%D0%B5%D1%81%D1%81%D0%B0-%D0%BD%D0%B5%D0%BF%D1%80%D0%B5%D1%80%D1%8B%D0%B2%D0%BD%D0%BE%D0%B9-%D0%BF%D0%BE%D1%81%D1%82%D0%B0%D0%B2%D0%BA%D0%B8)
 - [05 - Введение в мониторинг. Системы мониторинга.](#05---%D0%92%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5-%D0%B2-%D0%BC%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3-%D0%A1%D0%B8%D1%81%D1%82%D0%B5%D0%BC%D1%8B-%D0%BC%D0%BE%D0%BD%D0%B8%D1%82%D0%BE%D1%80%D0%B8%D0%BD%D0%B3%D0%B0)
+- [05 - Логирование и распределенная трассировка](#05---%D0%9B%D0%BE%D0%B3%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-%D0%B8-%D1%80%D0%B0%D1%81%D0%BF%D1%80%D0%B5%D0%B4%D0%B5%D0%BB%D0%B5%D0%BD%D0%BD%D0%B0%D1%8F-%D1%82%D1%80%D0%B0%D1%81%D1%81%D0%B8%D1%80%D0%BE%D0%B2%D0%BA%D0%B0)
 
 <!-- /MarkdownTOC -->
 
@@ -4714,3 +4715,772 @@ push:
  - Автоматизировали процесс сборки докер образов при помощи `make`
 
  ---
+
+## 05 - Логирование и распределенная трассировка
+
+**Задание №06-1:**
+ - Подготовка окружения
+ - Логирование Docker-контейнеров
+ - Сбор неструктурированных логов
+ - Визуализация логов
+ - Сбор структурированных логов
+ - Распределенный трейсинг
+
+**Решение №06-1:**
+Работаем в новой ветке `logging-1`.
+
+Забираем обновлённые исходники наших сервисов:
+```console
+> git clone https://github.com/express42/reddit.git
+Cloning into 'reddit'...
+remote: Enumerating objects: 376, done.
+remote: Counting objects: 100% (5/5), done.
+remote: Compressing objects: 100% (5/5), done.
+remote: Total 376 (delta 0), reused 0 (delta 0), pack-reused 371
+Receiving objects: 100% (376/376), 67.42 KiB | 821.00 KiB/s, done.
+Resolving deltas: 100% (201/201), done.
+
+> cd reddit/
+
+> git branch -a
+* monolith
+  remotes/origin/HEAD -> origin/monolith
+  remotes/origin/bugged
+  remotes/origin/dependabot/bundler/json-2.3.0
+  remotes/origin/dependabot/bundler/puma-3.12.6
+  remotes/origin/dependabot/bundler/rack-2.2.3
+  remotes/origin/dependabot/bundler/rake-13.0.1
+  remotes/origin/dependabot/bundler/sinatra-2.2.0
+  remotes/origin/logging
+  remotes/origin/microservices
+  remotes/origin/microservices-docker
+  remotes/origin/microservices_deprecated
+  remotes/origin/microservices_for_mc
+  remotes/origin/monolith
+  remotes/origin/revert-6-microservices
+
+> git checkout logging
+Branch 'logging' set up to track remote branch 'logging' from 'origin'.
+Switched to a new branch 'logging'
+
+> tree -L 2 --dirsfirst
+.
+├── comment
+│   ├── comment_app.rb
+│   ├── config.ru
+│   ├── docker_build.sh
+│   ├── Gemfile
+│   ├── Gemfile.lock
+│   ├── helpers.rb
+│   └── VERSION
+├── post-py
+│   ├── docker_build.sh
+│   ├── helpers.py
+│   ├── post_app.py
+│   ├── requirements.txt
+│   └── VERSION
+├── ui
+│   ├── views
+│   ├── config.ru
+│   ├── docker_build.sh
+│   ├── Gemfile
+│   ├── Gemfile.lock
+│   ├── helpers.rb
+│   ├── middleware.rb
+│   ├── ui_app.rb
+│   └── VERSION
+└── README.md
+```
+
+Копируем эти файлы в наш каталог `src`.
+Собираем образы и загружаем их на докер хаб.
+
+```console
+> export USER_NAME=r2d2k
+> cd ./src/ui && bash docker_build.sh && docker push $USER_NAME/ui
+...
+
+> cd ../post-py && bash docker_build.sh && docker push $USER_NAME/post
+...
+
+> cd ../comment && bash docker_build.sh && docker push $USER_NAME/comment
+...
+
+> docker images
+REPOSITORY      TAG            IMAGE ID       CREATED          SIZE
+r2d2k/post      logging        3637ea2f7e34   37 seconds ago   210MB
+r2d2k/comment   logging        9db45c86146f   2 minutes ago    187MB
+r2d2k/ui        logging        ec99272cec4c   4 minutes ago    188MB
+alpine          3.4            b7c5ffe56db7   3 years ago      4.81MB
+python          3.6.0-alpine   cb178ebbf0f2   5 years ago      88.6MB
+```
+
+Образы подготовлены, теперь займёмся системой логирования. Будем использовать классическую связку ELK (Elasticsearch, Kibana, Logstash), только вместо Logstash возьмём Fluentd, он полегче. Получится EFK.
+
+Для запуска системы создадим отдельный `docker/docker-compose-logging.yml`:
+```yaml
+version: '3'
+services:
+  fluentd:
+    image: ${USERNAME}/fluentd
+    ports:
+      - "24224:24224"
+      - "24224:24224/udp"
+
+  elasticsearch:
+    image: elasticsearch:7.4.0
+    environment:
+      - ELASTIC_CLUSTER=false
+      - CLUSTER_NODE_MASTER=true
+      - CLUSTER_MASTER_NODE_NAME=es01
+      - discovery.type=single-node
+    expose:
+      - 9200
+    ports:
+      - "9200:9200"
+
+  kibana:
+    image: kibana:7.4.0
+    ports:
+      - "5601:5601"
+```
+
+Для запуска Fluentd подготовим образ с нужной нам конфигурацией.
+
+`Dockerfile` создаём в каталоге `logging/fluentd`:
+```Dockerfile
+FROM fluent/fluentd:v0.12
+RUN gem install --no-rdoc --no-ri --version 2.1.0 faraday-net_http
+RUN gem install --no-rdoc --no-ri --version 1.10.2 faraday
+RUN gem install --no-rdoc --no-ri --version 1.9.5 fluent-plugin-elasticsearch
+RUN gem install --no-rdoc --no-ri --version 1.0.0 fluent-plugin-grok-parser
+ADD fluent.conf /fluentd/etc
+```
+
+Рядом создаём файл конфигурации:
+```html
+<source>
+  @type forward
+  port 24224
+  bind 0.0.0.0
+</source>
+
+<match *.**>
+  @type copy
+  <store>
+    @type elasticsearch
+    host elasticsearch
+    port 9200
+    logstash_format true
+    logstash_prefix fluentd
+    logstash_dateformat %Y%m%d
+    include_tag_key true
+    type_name access_log
+    tag_key @log_name
+    flush_interval 1s
+  </store>
+  <store>
+    @type stdout
+  </store>
+</match>
+```
+
+Собираем образ:
+```console
+> docker build -t r2d2k/fluentd .
+Sending build context to Docker daemon  3.072kB
+Step 1/6 : FROM fluent/fluentd:v0.12
+ ---> 5ad80e121366
+Step 2/6 : RUN gem install --no-rdoc --no-ri --version 2.1.0 faraday-net_http
+ ---> Running in e5f75bee3acc
+Successfully installed faraday-net_http-2.1.0
+1 gem installed
+Removing intermediate container e5f75bee3acc
+ ---> ad7785093b14
+Step 3/6 : RUN gem install --no-rdoc --no-ri --version 1.10.2 faraday
+ ---> Running in f9491d9f32b5
+Successfully installed faraday-em_http-1.0.0
+Successfully installed faraday-em_synchrony-1.0.0
+Successfully installed faraday-excon-1.1.0
+Successfully installed faraday-httpclient-1.0.1
+Successfully installed multipart-post-2.2.3
+Successfully installed faraday-multipart-1.0.4
+Successfully installed faraday-net_http-1.0.1
+Successfully installed faraday-net_http_persistent-1.2.0
+Successfully installed faraday-patron-1.0.0
+Successfully installed faraday-rack-1.0.0
+Successfully installed faraday-retry-1.0.3
+Successfully installed ruby2_keywords-0.0.5
+Successfully installed faraday-1.10.2
+13 gems installed
+Removing intermediate container f9491d9f32b5
+ ---> a8adad624361
+Step 4/6 : RUN gem install --no-rdoc --no-ri --version 1.9.5 fluent-plugin-elasticsearch
+ ---> Running in f2c42909dcbb
+Successfully installed multi_json-1.15.0
+Successfully installed elastic-transport-8.1.0
+Successfully installed elasticsearch-api-8.5.0
+Successfully installed elasticsearch-8.5.0
+Successfully installed excon-0.94.0
+Successfully installed fluent-plugin-elasticsearch-1.9.5
+6 gems installed
+Removing intermediate container f2c42909dcbb
+ ---> 1e8267e11380
+Step 5/6 : RUN gem install --no-rdoc --no-ri --version 1.0.0 fluent-plugin-grok-parser
+ ---> Running in 60c68c694e6a
+Successfully installed fluent-plugin-grok-parser-1.0.0
+1 gem installed
+Removing intermediate container 60c68c694e6a
+ ---> d9f3026219f8
+Step 6/6 : ADD fluent.conf /fluentd/etc
+ ---> cd1dddbc6ca7
+Successfully built cd1dddbc6ca7
+Successfully tagged r2d2k/fluentd:latest
+```
+
+Меняем наш `docker-compose` для запуска сервисов с логированием:
+```patch
+diff --git a/docker/docker-compose.yml b/docker/docker-compose.yml
+index d03c9f9..003e501 100644
+--- a/docker/docker-compose.yml
++++ b/docker/docker-compose.yml
+@@ -10,20 +10,20 @@ services:
+       - back_net
+
+   ui:
+-    image: ${USERNAME}/ui:latest
++    image: ${USERNAME}/ui:logging
+     ports:
+       - ${UI_PORT}:9292/tcp
+     networks:
+       - front_net
+
+   post:
+-    image: ${USERNAME}/post:latest
++    image: ${USERNAME}/post:logging
+     networks:
+       - back_net
+       - front_net
+
+   comment:
+-    image: ${USERNAME}/comment:latest
++    image: ${USERNAME}/comment:logging
+     networks:
+       - back_net
+       - front_net
+-  prometheus:
+-    image: ${USERNAME}/prometheus:latest
+-    ports:
+-      - '9090:9090'
+-    volumes:
+-      - prometheus_data:/prometheus
+-    command: # Передаем доп параметры в командной строке
+-      - '--config.file=/etc/prometheus/prometheus.yml'
+-      - '--storage.tsdb.path=/prometheus'
+-      - '--storage.tsdb.retention=1d' # Задаем время хранения метрик в 1 день
+-    networks:
+-      - front_net
+-      - back_net
+-
+-  node-exporter:
+-    image: prom/node-exporter:v0.15.2
+-    user: root
+-    volumes:
+-      - /proc:/host/proc:ro
+-      - /sys:/host/sys:ro
+-      - /:/rootfs:ro
+-    command:
+-      - '--path.procfs=/host/proc'
+-      - '--path.sysfs=/host/sys'
+-      - '--collector.filesystem.ignored-mount-points="^/(sys|proc|dev|host|etc)($$|/)"'
+-    networks:
+-      - front_net
+-      - back_net
+-
+-  mongo-exporter:
+-    image: percona/mongodb_exporter:0.35
+-    command:
+-      - '--mongodb.uri=mongodb://post_db:27017'
+-      - '--collect-all'
+-      - '--log.level=debug'
+-    ports:
+-      - '9216:9216'
+-    networks:
+-      - back_net
+-
+-  blackbox-exporter:
+-    image: r2d2k/blackbox-exporter:1.0
+-    ports:
+-      - '9115:9115'
+-    networks:
+-      - front_net
+-
+ volumes:
+   post_db:
+-  prometheus_data:
+
+ networks:
+   front_net:
+```
+
+Стек запущен:
+```console
+> docker compose ps
+NAME                COMMAND                  SERVICE             STATUS              PORTS
+r2d2k-comment-1     "puma"                   comment             running
+r2d2k-post-1        "python3 post_app.py"    post                running
+r2d2k-post_db-1     "docker-entrypoint.s…"   post_db             running             27017/tcp
+r2d2k-ui-1          "puma"                   ui                  running             0.0.0.0:9292->9292/tcp, :::9292->9292/tcp
+```
+
+Смотрим, что с логами `docker logs -f r2d2k-post-1`:
+```json
+{"event": "find_all_posts", "level": "info", "message": "Successfully retrieved all posts from the database", "params": {}, "request_id": "d8f9c2d9-88e8-4674-b40f-a875877266b3", "service": "post", "timestamp": "2022-11-10 18:32:45"}
+{"addr": "10.0.1.3", "event": "request", "level": "info", "method": "GET", "path": "/posts?", "request_id": "d8f9c2d9-88e8-4674-b40f-a875877266b3", "response_status": 200, "service": "post", "timestamp": "2022-11-10 18:32:45"}
+{"event": "find_all_posts", "level": "info", "message": "Successfully retrieved all posts from the database", "params": {}, "request_id": "0d704b11-5434-448f-bd83-9296bf965c68", "service": "post", "timestamp": "2022-11-10 18:32:47"}
+{"addr": "10.0.1.3", "event": "request", "level": "info", "method": "GET", "path": "/posts?", "request_id": "0d704b11-5434-448f-bd83-9296bf965c68", "response_status": 200, "service": "post", "timestamp": "2022-11-10 18:32:47"}
+```
+
+Логи выглядят довольно структурированно. Настроим драйвер логирования для сервиса `post`:
+```patch
+diff --git a/docker/docker-compose.yml b/docker/docker-compose.yml
+index 7db7f7d..bb38d2e 100644
+--- a/docker/docker-compose.yml
++++ b/docker/docker-compose.yml
+@@ -21,6 +21,11 @@ services:
+     networks:
+       - back_net
+       - front_net
++    logging:
++      driver: "fluentd"
++      options:
++        fluentd-address: localhost:24224
++        tag: service.post
+
+   comment:
+     image: ${USERNAME}/comment:logging
+```
+
+Сначала запустим стек для приёма логов:
+```console
+> docker compose -f docker-compose-logging.yml up -d
+
+> lynx -dump http://127.0.0.1:9200
+{
+  "name" : "4c627b97aef0",
+  "cluster_name" : "docker-cluster",
+  "cluster_uuid" : "jU1XzzAaRSitHuIUOysHnA",
+  "version" : {
+    "number" : "7.4.0",
+    "build_flavor" : "default",
+    "build_type" : "docker",
+    "build_hash" : "22e1767283e61a198cb4db791ea66e3f11ab9910",
+    "build_date" : "2019-09-27T08:36:48.569419Z",
+    "build_snapshot" : false,
+    "lucene_version" : "8.2.0",
+    "minimum_wire_compatibility_version" : "6.8.0",
+    "minimum_index_compatibility_version" : "6.0.0-beta1"
+  },
+  "tagline" : "You Know, for Search"
+}
+
+> lynx -dump http://127.0.0.1:5601
+   Loading Kibana
+
+Please upgrade your browser
+
+   This Kibana installation has strict security requirements enabled that
+   your current browser does not meet.
+```
+
+Видим, что `elasticsearch` и `kibana` поднялись и отвечают на запросы.
+Перезапустим стек нашего приложения `docker compose down`, затем `docker compose up -d`.
+Создадим несколько постов и проверим, что видно в `kibana`.
+
+Ничего не видно, создать индексы не можем, нет данных. Идём в логи `fluentd`, видим, что он не может найти транспорт `elasticsearch`.Говорят, что должен быть `gem elasticsearch`.
+
+Для нормальной работы версии пакетов должны быть примерно одного времени выпуска. За ориентир возьмём `fluerntd-plugin-elasticsearch`.
+
+OMG, версия 1.9.5 была выпущена 11 мая 2017 года. Ищем версию `gem elasticsearch` того же времени, это версия 6.2.0 выглядит подходящей.
+
+Обновляем `Dockerfile` `fluentd`, собираем образ и запускаем стек. После запуска идём в `kibana`, создаём индекс, данные идут!
+
+Записи мы получаем, но они выглядят, как строки, но в формате JSON:
+```json
+{"addr": "10.0.1.3", "event": "request", "level": "info", "method": "GET", "path": "/healthcheck?", "request_id": null, "response_status": 200, "service": "post", "timestamp": "2022-11-10 19:31:41"}
+```
+
+Можем разбить эту строку на поля, для этого используем фильры `fluentd`. Изменим конфиг:
+```patch
+index fedd386..9d2cb56 100644
+--- a/logging/fluentd/fluent.conf
++++ b/logging/fluentd/fluent.conf
+@@ -4,6 +4,12 @@
+   bind 0.0.0.0
+ </source>
+
++<filter service.post>
++  @type parser
++  format json
++  key_name log
++</filter>
++
+ <match *.**>
+   @type copy
+   <store>
+@@ -22,3 +28,4 @@
+     @type stdout
+   </store>
+ </match>
+```
+
+Cоберём образ, перезапустим его и что мы видим? Видим, что строка разобрана на поля. Можем фильтровать, искать, что нам нужно.
+
+Теперь разбираемся с неструктурированными логами. Сервис `ui` как раз занимается оправкой таких логов. Добавим к контейнеру драйвер для логирования:
+```patch
+index bb38d2e..fd85fe4 100644
+--- a/docker/docker-compose.yml
++++ b/docker/docker-compose.yml
+@@ -15,6 +15,11 @@ services:
+       - ${UI_PORT}:9292/tcp
+     networks:
+       - front_net
++    logging:
++      driver: "fluentd"
++      options:
++        fluentd-address: localhost:24224
++        tag: service.ui
+
+   post:
+     image: ${USERNAME}/post:logging
+```
+
+Перезапускаем контейнер, видим логи сервиса `ui` следующего формата:
+```console
+I, [2022-11-10T19:52:07.401598 #1]  INFO -- : service=ui | event=request | path=/post/636d4abf9185ef0015c1116a/vote/1 | request_id=6378a322-909c-4c4e-907d-4fca282088af | remote_addr=192.168.10.97 | method= POST | response_status=303
+```
+
+Разобрать такие строки можно при помощи регулярных выражений.
+Добавим фильтр в конфиг `fluentd`:
+```patch
+index 3ea4e43..93cead1 100644
+--- a/logging/fluentd/fluent.conf
++++ b/logging/fluentd/fluent.conf
+@@ -10,6 +10,12 @@
+   key_name log
+ </filter>
+
++<filter service.ui>
++  @type parser
++  format /\[(?<time>[^\]]*)\]  (?<level>\S+) (?<user>\S+)[\W]*service=(?<service>\S+)[\W]*event=(?<event>\S+)[\W]*(?:path=(?<path>\S+)[\W]*)?request_id=(?<request_id>\S+)[\W]*(?:remote_addr=(?<remote_addr>\S+)[\W]*)?(?:method= (?<method>\S+)[\W]*)?(?:response_status=(?<response_status>\S+)[\W]*)?(?:message='(?<message>[^\']*)[\W]*)?/
++  key_name log
++</filter>
++
+ <match *.**>
+   @type copy
+   <store>
+```
+
+После пересборки и перезапуска контейнера `fluentd` видим, что строки разобраны по полям и доступны для поиска.
+Чтобы не усложнять себе жизнь регулядными выражениями, можно использовать `grok` шаблоны.
+Используем такой вместо фильтра на регулярных выражениях:
+```patch
+index 93cead1..0ef1c57 100644
+--- a/logging/fluentd/fluent.conf
++++ b/logging/fluentd/fluent.conf
+@@ -12,7 +12,8 @@
+
+ <filter service.ui>
+   @type parser
+-  format /\[(?<time>[^\]]*)\]  (?<level>\S+) (?<user>\S+)[\W]*service=(?<service>\S+)[\W]*event=(?<event>\S+)[\W]*(?:path=(?<path>\S+)[\W]*)?request_id=(?<request_id>\S+)[\W]*(?:remote_addr=(?<remote_addr>\S+)[\W]*)?(?:method= (?<method>\S+)[\W]*)?(?:response_status=(?<response_status>\S+)[\W]*)?(?:message='(?<message>[^\']*)[\W]*)?/
++  format grok
++  grok_pattern %{RUBY_LOGGER}
+   key_name log
+ </filter>
+```
+
+После использования такого фильтра некоторые сообщения остаются в исходном виде.
+```console
+service=ui | event=show_all_posts | request_id=5a1d3778-88eb-4bce-827b-0998b559abe8 | message='Successfully showed the home page with posts' | params: "{}"
+```
+Для их разбора можно применить несколько фильтров последовательно. Применим ещё один фильтр.
+
+```patch
+index 0ef1c57..ed56fb4 100644
+--- a/logging/fluentd/fluent.conf
++++ b/logging/fluentd/fluent.conf
+@@ -17,6 +17,14 @@
+   key_name log
+ </filter>
+
++<filter service.ui>
++  @type parser
++  format grok
++  grok_pattern service=%{WORD:service} \| event=%{WORD:event} \| request_id=%{GREEDYDATA:request_id} \| message='%{GREEDYDATA:message}'
++  key_name message
++  reserve_data true
++</filter>
++
+ <match *.**>
+   @type copy
+   <store>
+```
+
+**Результат №06-1:**
+ - Подготовили окружение для сбора логов на базе EFK
+ - Настроили передачу логов контейнера в базу
+ - Настроили разбор структурированных логов при помощи стандартных фильтров
+ - Настроили `grok` для обработки неструктурированных логов
+ - Визуализировали логи с помощью `kibana`
+
+---
+
+**Задание №06-2:**
+ - Разобрать осталные неструктурированные логи
+
+**Решение №06-2:**
+
+Часть записей остаётся неразобранной, напиример такая строка:
+```console
+service=ui | event=request | path=/ | request_id=47af35ff-46be-4dbd-83f8-6c544f3a0234 | remote_addr=192.168.10.97 | method= GET | response_status=200
+```
+
+Напишем для неё фильтр:
+```patch
+index 0ef1c57..7897957 100644
+--- a/logging/fluentd/fluent.conf
++++ b/logging/fluentd/fluent.conf
+@@ -17,6 +17,22 @@
+   key_name log
+ </filter>
+
++<filter service.ui>
++  @type parser
++  format grok
++  grok_pattern service=%{WORD:service} \| event=%{WORD:event} \| request_id=%{GREEDYDATA:request_id} \| message='%{GREEDYDATA:message}'
++  key_name message
++  reserve_data true
++</filter>
++
++<filter service.ui>
++  @type parser
++  format grok
++  grok_pattern service=%{WORD:service} \| event=%{WORD:event} \| path=%{URIPATH:path} \| request_id=%{UUID:request_id} \| remote_addr=%{IP:remote_addr} \| method= %{WORD:method} \| response_status=%{NUMBER:response_status}
++  key_name message
++</filter>
++
++
+```
+
+Для отладки шаблонов можно пользоваться [одним](https://grokdebug.herokuapp.com) из онлайн дебаггеров `grok`.
+
+**Результат №06-2:**
+ - После двух последовательных фильтров все сообщения сервиса `ui` начинают разбираться на составные части.
+
+---
+
+**Задание №06-3:**
+ - Распределенный трейсинг
+
+**Решение №06-3:**
+
+Будем использовать `zipkin`.
+Для этого добавим новый сервис в стек логирования:
+```patch
+index 5bd05c7..a003de5 100644
+--- a/docker/docker-compose-logging.yml
++++ b/docker/docker-compose-logging.yml
+@@ -22,3 +22,8 @@ services:
+     image: kibana:7.4.0
+     ports:
+       - "5601:5601"
++
++  zipkin:
++    image: openzipkin/zipkin:2.21.0
++    ports:
++      - "9411:9411"
+```
+
+Для его включения каждому сервису добавим переменную окружения:
+```patch
+index fd85fe4..c930eb9 100644
+--- a/docker/docker-compose.yml
++++ b/docker/docker-compose.yml
+@@ -20,6 +20,8 @@ services:
+       options:
+         fluentd-address: localhost:24224
+         tag: service.ui
++    environment:
++      - ZIPKIN_ENABLED=${ZIPKIN_ENABLED}
+
+   post:
+     image: ${USERNAME}/post:logging
+@@ -31,12 +33,16 @@ services:
+       options:
+         fluentd-address: localhost:24224
+         tag: service.post
++    environment:
++      - ZIPKIN_ENABLED=${ZIPKIN_ENABLED}
+
+   comment:
+     image: ${USERNAME}/comment:logging
+     networks:
+       - back_net
+       - front_net
++    environment:
++      - ZIPKIN_ENABLED=${ZIPKIN_ENABLED}
+
+ volumes:
+   post_db:
+```
+
+Перезапускаем стек и открываем веб-интерфейс `zipkin`, порт 9411.
+Ходим по веб-интерфейсу нашего приложения, но в `zipkin` ничего не появляется.
+Правильно, мы не подключили `zipkin` к сетям нашего стека. Исправляем:
+```patch
+index a003de5..644012e 100644
+--- a/docker/docker-compose-logging.yml
++++ b/docker/docker-compose-logging.yml
+@@ -27,3 +27,19 @@ services:
+     image: openzipkin/zipkin:2.21.0
+     ports:
+       - "9411:9411"
++    networks:
++      - front_net
++      - back_net
++
++networks:
++  front_net:
++    driver: bridge
++    ipam:
++      config:
++        - subnet: 10.0.1.0/24
++
++  back_net:
++    driver: bridge
++    ipam:
++      config:
++        - subnet: 10.0.2.0/24
+```
+
+Перезапускаем стек логирования, теперь данные сервисов собираются нормально.
+
+**Результат №06-3:**
+ - Мы настроили сбор данных о внутренних процессах сервисов при помощи `zipkin`
+
+---
+
+**Задание №06-4:**
+ - Траблшутинг UI-экспириенса
+
+ С нашим приложением происходит что-то странное.
+ Пользователи жалуются, что при нажатии на пост они вынуждены долго ждать, пока у них загрузится страница с постом.
+ Жалоб на загрузку других страниц не поступало. Нужно выяснить, в чем проблема, используя Zipkin.
+ Код приложения с багом отличается от используемого ранее в этом ДЗ и доступен [в репозитории](https://github.com/Artemmkin/bugged-code) со сломанным кодом приложения.
+ Т.е. необходимо сбилдить багнутую версию приложения и запустить Zipkin для неё.
+
+**Решение №06-4:**
+ - Качаем код по [ссылке](https://github.com/Artemmkin/bugged-code)
+ - Размещаем в корне нашего репозитория, каталог `bugged-code`
+ - Удаляем подкаталог `.git` в каталоге `bugged-code`
+ - Правим `Gemfile`, меняем `https` на `http`. Контейнеры старые, все сертификаты давно протухли
+ - Собираем образы при помощи `docker_build.sh`
+ - Навешиваем на каждый образ тег `bug`
+ - Делаем копию `docker-compose.yml` в `docker-compose-bug.yml`, меняя теги `logging` на `bug`
+ - Останавливаем старый стек, поднимаем новый
+
+Открываем главную страницу приложения, видим, что нам прямым текстом говорят:
+```console
+Can't show blog posts, some problems with the post service. Refresh?
+```
+
+Открываем `kibana`, в глаза бросается такая строка:
+```console
+Failed to read from Post service. Reason: Failed to open TCP connection to 127.0.0.1:4567 (Connection refused - connect(2) for "127.0.0.1" port 4567)
+```
+
+Проверяем, видим, что в `docker-compose-bug.yml` забыли указать переменные окружения для контейнеров и они не могут найти друг друга.
+Исправим это:
+```patch
+--- docker/docker-compose.yml   2022-11-12 05:42:00.630286092 +0000
++++ docker/docker-compose-bug.yml       2022-11-12 12:06:08.709982815 +0000
+@@ -10,7 +10,7 @@
+       - back_net
+
+   ui:
+-    image: ${USERNAME}/ui:logging
++    image: ${USERNAME}/ui:bug
+     ports:
+       - ${UI_PORT}:9292/tcp
+     networks:
+@@ -21,10 +21,15 @@
+         fluentd-address: localhost:24224
+         tag: service.ui
+     environment:
+-      - ZIPKIN_ENABLED=${ZIPKIN_ENABLED}
++      - ZIPKIN_ENABLED=${ZIPKIN_ENABLED:-false}
++      - POST_SERVICE_HOST=${POST_SERVICE_HOST:-localhost}
++      - POST_SERVICE_PORT=${POST_SERVICE_PORT:-5000}
++      - COMMENT_SERVICE_HOST=${COMMENT_SERVICE_HOST:-localhost}
++      - COMMENT_SERVICE_PORT=${COMMENT_SERVICE_PORT:-9292}
++
+
+   post:
+-    image: ${USERNAME}/post:logging
++    image: ${USERNAME}/post:bug
+     networks:
+       - back_net
+       - front_net
+@@ -35,14 +40,20 @@
+         tag: service.post
+     environment:
+       - ZIPKIN_ENABLED=${ZIPKIN_ENABLED}
++      - POST_DATABASE_HOST=${POST_DATABASE_HOST:-localhost}
++      - POST_DATABASE=${POST_DATABASE:-posts}
++
+
+   comment:
+-    image: ${USERNAME}/comment:logging
++    image: ${USERNAME}/comment:bug
+     networks:
+       - back_net
+       - front_net
+     environment:
+       - ZIPKIN_ENABLED=${ZIPKIN_ENABLED}
++      - COMMENT_DATABASE_HOST=${COMMENT_DATABASE_HOST:-localhost}
++      - COMMENT_DATABASE=${COMMENT_DATABASE:-comments}
++
+
+ volumes:
+   post_db:
+```
+
+Перезапускаем стек с багами, теперь всё работает. При попытке открыть пост получаем задержку около 3 секунд.
+
+В `zipkin` видим, что функция `db_find_single_post` сервиса `post` отрабатывает за 3 секунды.
+Идём в исходники, ищем эту процедуру.
+Видим странную задержку, комментируем:
+```patch
+index 1441173..da062f0 100644
+--- a/bugged-code/post-py/post_app.py
++++ b/bugged-code/post-py/post_app.py
+@@ -164,7 +164,7 @@ def find_post(id):
+         stop_time = time.time()  # + 0.3
+         resp_time = stop_time - start_time
+         app.post_read_db_seconds.observe(resp_time)
+-        time.sleep(3)
++#        time.sleep(3)
+         log_event('info', 'post_find',
+                   'Successfully found the post information',
+                   {'post_id': id})
+```
+
+Пересобираем образ, перезапускаем стек, проверяем работу.
+Процедура стала выполняться за 3 мс.
+
+Прекрасно, ускорили сервис `post` в 1000 раз.
+
+**Результат №06-4:**
+ - Задержка при открытии поста вызвана `time.sleep(3)` в функции `db_find_single_post` сервиса `post`.
+
+---
