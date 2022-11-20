@@ -1,0 +1,13 @@
+service_account_key_file    = "key.json"
+cloud_id                    = "00000000000000000000"
+folder_id                   = "00000000000000000000"
+public_key_path             = "~/.ssh/ubuntu.pub"
+
+cluster_name                = "Nemo"
+k8s_version                 = "1.11"
+service_account_id          = "00000000000000000000"
+network_id                  = "00000000000000000000"
+subnet_id                   = "00000000000000000000"
+node_cpu_count              = 16
+node_memory_size            = 32
+node_disk_size              = 64
