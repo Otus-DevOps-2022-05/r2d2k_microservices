@@ -8,11 +8,11 @@
 # Recommended to set up an A record on the DNS to *.your-domain.com to point to
 # the baseIP
 # e.g. *.your-domain.com.	A	300	baseIP
-#baseDomain: your-domain.com
+baseDomain: example.com
 
 # legoEmail is a valid email address used by Let's Encrypt. It does not have to
 # be at the baseDomain.
-#legoEmail: you@example.com
+legoEmail: you@example.com
 
 # Optional variables
 # baseIP is an externally provisioned static IP address to use instead of the provisioned one.
@@ -47,8 +47,8 @@ provider: gke
 
 # Gitlab pages
 # The following 3 lines are needed to enable gitlab pages.
-# pagesExternalScheme: http
-# pagesExternalDomain: your-pages-domain.com
+pagesExternalScheme: http
+pagesExternalDomain: your-pages-domain.com
 # pagesTlsSecret: gitlab-pages-tls # An optional reference to a tls secret to use in pages
 
 ## Storage Class Options
