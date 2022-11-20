@@ -11,6 +11,7 @@
 - [06 - Логирование и распределенная трассировка](#06---%D0%9B%D0%BE%D0%B3%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%D0%BD%D0%B8%D0%B5-%D0%B8-%D1%80%D0%B0%D1%81%D0%BF%D1%80%D0%B5%D0%B4%D0%B5%D0%BB%D0%B5%D0%BD%D0%BD%D0%B0%D1%8F-%D1%82%D1%80%D0%B0%D1%81%D1%81%D0%B8%D1%80%D0%BE%D0%B2%D0%BA%D0%B0)
 - [07 - Введение в kubernetes](#07---%D0%92%D0%B2%D0%B5%D0%B4%D0%B5%D0%BD%D0%B8%D0%B5-%D0%B2-kubernetes)
 - [08 - Kubernetes. Запуск кластера и приложения. Модель безопасности](#08---kubernetes-%D0%97%D0%B0%D0%BF%D1%83%D1%81%D0%BA-%D0%BA%D0%BB%D0%B0%D1%81%D1%82%D0%B5%D1%80%D0%B0-%D0%B8-%D0%BF%D1%80%D0%B8%D0%BB%D0%BE%D0%B6%D0%B5%D0%BD%D0%B8%D1%8F-%D0%9C%D0%BE%D0%B4%D0%B5%D0%BB%D1%8C-%D0%B1%D0%B5%D0%B7%D0%BE%D0%BF%D0%B0%D1%81%D0%BD%D0%BE%D1%81%D1%82%D0%B8)
+- [09 - Kubernetes. Networks, Storages](#09---kubernetes-networks-storages)
 
 <!-- /MarkdownTOC -->
 
@@ -6960,3 +6961,580 @@ kubernetes-dashboard   kubernetes-dashboard-6b79449649-r2cxq                 1/1
 **Результат №08-3**
  - При помощи `terraform` поднят кластер k8s в Yandex Cloud
  - Подготовлены и проверенв а работе манифесты для запуска `dashboard` и создания пользователя с правами администратора
+
+---
+
+## 09 - Kubernetes. Networks, Storages
+
+**Задание №09-1:**
+ - Ingress Controller
+ - Ingress
+ - Secret
+ - TLS
+ - LoadBalancer Service
+ - Network Policies
+ - PersistentVolumes
+ - PersistentVolumeClaims
+
+**Решение №09-1:**
+
+Работаем в новой ветке `kubernetes-3`.
+
+При помощи `terraform` в Yandex Cloud поднимаем кластер, который готовили в предыдущем задании.
+Пока кластер поднимается (занимает минут десять), разбермся с балансировщиком.
+
+Тип LoadBalancer позволяет нам использовать внешний облачный балансировщик нагрузки как единую точку входа в наши сервисы, а не полагаться на IPTables и не открывать наружу весь кластер. Настроим соответствующим образом сервис `ui`, правим `ui-service.yml`:
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  labels:
+    app: reddit
+    component: ui
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 9292
+  selector:
+    app: reddit
+    component: ui
+```
+
+Регистрируем кластер в локальном окружении:
+```console
+> yc managed-kubernetes cluster get-credentials test-cluster --external
+...
+
+> kubectl cluster-info
+Kubernetes control plane is running at https://158.160.39.143
+CoreDNS is running at https://158.160.39.143/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
+```
+
+Применяем манифесты и проверяем результат:
+```console
+> kubectl apply -f kubernetes/reddit/dev-namespace.yml
+namespace/dev created
+
+> kubectl apply -n dev -f kubernetes/redditdeployment.apps/comment created
+service/comment-db created
+service/comment created
+namespace/dev unchanged
+deployment.apps/mongo created
+service/mongodb created
+deployment.apps/post created
+service/post-db created
+service/post created
+deployment.apps/ui created
+service/ui created
+
+> kubectl get pods -n dev
+NAME                       READY   STATUS    RESTARTS   AGE
+comment-7799d6d7cf-mg5lj   1/1     Running   0          60s
+comment-7799d6d7cf-t5pzf   1/1     Running   0          60s
+comment-7799d6d7cf-xn2bs   1/1     Running   0          60s
+mongo-6b9fcfd49f-5rgwm     1/1     Running   0          60s
+post-678cc6585-4ssr5       1/1     Running   0          60s
+post-678cc6585-q6fpb       1/1     Running   0          60s
+post-678cc6585-z8dwf       1/1     Running   0          60s
+ui-565b9d6499-4n9ck        1/1     Running   0          60s
+ui-565b9d6499-8cmg5        1/1     Running   0          60s
+ui-565b9d6499-r2826        1/1     Running   0          60s
+
+> kubectl get services -n dev
+NAME         TYPE           CLUSTER-IP      EXTERNAL-IP      PORT(S)        AGE
+comment      ClusterIP      10.96.158.99    <none>           9292/TCP       100s
+comment-db   ClusterIP      10.96.170.3     <none>           27017/TCP      100s
+mongodb      ClusterIP      10.96.226.69    <none>           27017/TCP      100s
+post         ClusterIP      10.96.176.224   <none>           5000/TCP       100s
+post-db      ClusterIP      10.96.243.20    <none>           27017/TCP      100s
+ui           LoadBalancer   10.96.146.125   158.160.37.149   80:31746/TCP   100s
+
+> lynx -dump http://158.160.37.149/
+   (BUTTON) [1]Microservices Reddit in dev ui-565b9d6499-8cmg5 container
+
+Menu
+
+     * [2]All posts
+     * [3]New post
+
+References
+
+   1. http://158.160.37.149/
+   2. http://158.160.37.149/
+   3. http://158.160.37.149/new
+```
+
+Видим, что все поды поднялись, сервисы работают, а у сервиса `LoadBalancer` появился внешний адрес. По этому адресу и доступно наше приложение.
+
+Балансировка с помощью Service типа `LoadBalancer` имеет ряд недостатков:
+ - Нельзя управлять с помощью http URI (L7-балансировщика)
+ - Используются только облачные балансировщики
+ - Нет гибких правил работы с трафиком
+
+Для более удобного управления входящим снаружи трафиком и решения недостатков LoadBalancer можно использовать другой объект Kubernetes - Ingress
+
+Ingress - это набор правил внутри кластера Kuberntes, предназначенных для того, чтобы входящие подключения могли достичь сервисов. Сами по себе Ingress'ы это просто правила. Для их применения нужен Ingress Controller.
+
+Ingress Controller - это скорее плагин (а значит и отдельный POD), который состоит из 2-х функциональных частей:
+ - Приложение, которое отслеживает через k8s API новые объекты Ingress и обновляет конфигурацию балансировщика
+ - Балансировщик (Nginx, haproxy, traefik, ...), который и занимается управлением сетевым трафиком
+
+Основные задачи, решаемые с помощью Ingress'ов:
+ - Организация единой точки входа в приложения снаружи
+ - Обеспечение балансировки трафика
+ - Терминация SSL
+ - Виртуальный хостинг на основе имен
+
+Установим `ingress controller`:
+```console
+> kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.5.1/deploy/static/provider/cloud/deploy.yaml
+
+namespace/ingress-nginx created
+serviceaccount/ingress-nginx created
+serviceaccount/ingress-nginx-admission created
+role.rbac.authorization.k8s.io/ingress-nginx created
+role.rbac.authorization.k8s.io/ingress-nginx-admission created
+clusterrole.rbac.authorization.k8s.io/ingress-nginx created
+clusterrole.rbac.authorization.k8s.io/ingress-nginx-admission created
+rolebinding.rbac.authorization.k8s.io/ingress-nginx created
+rolebinding.rbac.authorization.k8s.io/ingress-nginx-admission created
+clusterrolebinding.rbac.authorization.k8s.io/ingress-nginx created
+clusterrolebinding.rbac.authorization.k8s.io/ingress-nginx-admission created
+configmap/ingress-nginx-controller created
+service/ingress-nginx-controller created
+service/ingress-nginx-controller-admission created
+deployment.apps/ingress-nginx-controller created
+job.batch/ingress-nginx-admission-create created
+job.batch/ingress-nginx-admission-patch created
+ingressclass.networking.k8s.io/nginx created
+validatingwebhookconfiguration.admissionregistration.k8s.io/ingress-nginx-admission created
+```
+
+Создадим манифест `ingress` для сервиса `ui`:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ui
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ui
+            port:
+              number: 9292
+```
+
+Применим:
+```console
+> kubectl apply -n dev -f ui-ingress.yml
+ingress.networking.k8s.io/ui configured
+```
+
+Проверим статус:
+```console
+> kubectl get ingress ui -n dev
+NAME   CLASS   HOSTS   ADDRESS        PORTS   AGE
+ui     nginx   *       62.84.124.91   80      12m
+
+> lynx -dump http://62.84.124.91/
+   (BUTTON) [1]Microservices Reddit in dev ui-565b9d6499-8cmg5 container
+
+Menu
+
+     * [2]All posts
+     * [3]New post
+
+References
+
+   1. http://62.84.124.91/
+   2. http://62.84.124.91/
+   3. http://62.84.124.91/new
+```
+
+Теперь давайте защитим наш сервис с помощью TLS.
+Генерируем сертификат:
+```console
+> openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=62.84.124.91"
+..+.....+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*......+...+..+...+......+....+.................+.+.....+....+...+.....+...+............+.+..+...+.+...+.....+............+.............+...........+......+...............+.+..+.+..+....+........+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*..+......+.........+.+..+............+.......+......+........+....+...+.....+............+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+...+.....+...+...+...+.........+.+..+.......+..+.+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*.+....+...+..+.........+....+......+..+.........+...+...+...+....+...+...+......+.....+...+.+.....+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++*..+....+........+......+..........+.....+......+..........+......+..............+...+.......+........+.+..+....+.........+..+............+......+.+.....+....+......+...+..+.........+....+........+...+............+....+.....+...+......+.......+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-----
+```
+
+Создаём секрет с данным сертификатом:
+```console
+> kubectl create secret tls ui-ingress --key tls.key --cert tls.crt -n dev
+secret/ui-ingress created
+
+> kubectl describe secret ui-ingress -n dev
+Name:         ui-ingress
+Namespace:    dev
+Labels:       <none>
+Annotations:  <none>
+
+Type:  kubernetes.io/tls
+
+Data
+====
+tls.crt:  1123 bytes
+tls.key:  1704 bytes
+```
+
+Обновим манифест `ui-ingress.yml`:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ui
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - secretName: ui-ingress
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: ui
+            port:
+              number: 9292
+```
+
+Применяем, проверяем:
+```console
+> kubectl apply -n dev -f ui-ingress.yml
+ingress.networking.k8s.io/ui configured
+
+> kubectl get ingress ui -n dev
+NAME   CLASS   HOSTS   ADDRESS        PORTS     AGE
+ui     nginx   *       62.84.124.91   80, 443   26m
+
+> kubectl describe ingress ui -n dev
+Name:             ui
+Labels:           <none>
+Namespace:        dev
+Address:          62.84.124.91
+Ingress Class:    nginx
+Default backend:  <default>
+TLS:
+  ui-ingress terminates
+Rules:
+  Host        Path  Backends
+  ----        ----  --------
+  *
+              /   ui:9292 (10.112.128.23:9292,10.112.128.24:9292,10.112.128.25:9292)
+Annotations:  nginx.ingress.kubernetes.io/force-ssl-redirect: true
+Events:
+  Type    Reason  Age                  From                      Message
+  ----    ------  ----                 ----                      -------
+  Normal  Sync    2m21s (x8 over 20m)  nginx-ingress-controller  Scheduled for sync
+
+> lynx -dump http://62.84.124.91
+                           308 Permanent Redirect
+     __________________________________________________________________
+
+                                    nginx
+```
+
+Наш сервис отвечает по `https`, а при обращении на `http` делает редирект.
+
+**Результат №09-1:**
+ - Создан `ingress controller`
+ - Создан `ingress`
+ - Настроено шифрование трафика при помощи сертификата (HTTPS)
+
+ ---
+
+**Задание №09-2:**
+ - Опишите создаваемый объект Secret в виде Kubernetes-манифеста
+
+**Решение №09-2:**
+
+Предлагаю не мудрить. Готовый секрет у нас есть, поэтому добудем его содержимое:
+```console
+> kubectl edit secret ui-ingress -n dev
+
+apiVersion: v1
+data:
+  tls.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUREekNDQWZlZ0F3SUJBZ0lVU2dUaGxZeGFXejBSTVdBc1VPMnBTSHNhWXc4d0RRWUpLb1pJaHZjTkFRRUwKQlFBd0Z6RVZNQk1HQTFVRUF3d01Oakl1T0RRdU1USTBMamt4TUI0WERUSXlNVEV4TkRFM05UZ3pNVm9YRFRJegpNVEV4TkRFM05UZ3pNVm93RnpFVk1CTUdBMVVFQXd3TU5qSXVPRFF1TVRJMExqa3hNSUlCSWpBTkJna3Foa2lHCjl3MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUF6ZVBzMVYvT050MmNhK3k2OURFWnkzTENiZ3NKNmo2ZzJvelkKYkhyQlBWaGJmYnNEMGNtakZmdWVpY0J6eldOVkZZeGJPQWV3dXpwcDJmYnJPR3lvSzhUWUx4VXVQSVVucW1XZwp3eVpaMDlUN2pxak1STnFmQTBoekJDVGE3VW82ajBqUGZvMWQyZ1UwaXQ4MHl2UTVUbXhValdja2ZHSFlKRU9DCjBiRTdzSkRQZVVHcW9yU3c2RVRYWkUramlDTHIrRHU5d09rV01oekI0MlhvZU1NOHVrOVh3bnBTdUdGZHRheGMKNE1CVTN6djg2OGprdStYV1FKU2Z2NWMwdE5EMXlHZmFnaUJnMmNnTVloQW4waS9SZmVrVS9YSk5URlJkVThjZwpMMGJyWDgwOHdLNjA5c2R4c2tjTlVId253U1p2MWNqK3JkVlkvRGQ0eDBMeHRzS1YwUUlEQVFBQm8xTXdVVEFkCkJnTlZIUTRFRmdRVU5IYlhacExaejlSekVxY0lEaGthZnRpRUhYZ3dId1lEVlIwakJCZ3dGb0FVTkhiWFpwTFoKejlSekVxY0lEaGthZnRpRUhYZ3dEd1lEVlIwVEFRSC9CQVV3QXdFQi96QU5CZ2txaGtpRzl3MEJBUXNGQUFPQwpBUUVBWUw1UVRYRk5zU3htckJyNERmQ3lUUXBaNlA3eFdQN1NnVE9DenN5M3ZpalNjZ3pPUkt0cjJMSk5GYzdICnE3WDlGL1FVbzRpZ1VlVmlaaytDek80QURwa2FMWUlmWGM5K2NEQWE1ZjY0Q1dPYXV6Z2k2cCs5NUNRd2N0VzEKa1RsdzJaK3BPYkp1SEZEZ09MQ0lLbXA4cGIvVFlGU3VxMk9OdFBWMjk1V29Wd0dkSllBZHhBTkRGczdzOXBYego1S0dYRWNURlg3aFZOOUFSZFNzUEZiRW56M1YrRFRKQnVpWkNDNXJGZmc3MFdpVWErZkhvalh6WWlTbGg1OEh0CnVMcjlYNlM5bHJtcDF0YXdYcERXS1V1MStPU1pYMUJiOGpJM2Q5YmxIMXlTNlA3MlljKzV5QU9GOSs5VVBia2QKeng3dmNWMWF6eVVKdHREa0hLeklKT0g4elE9PQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
+  tls.key: LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2UUlCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktjd2dnU2pBZ0VBQW9JQkFRRE40K3pWWDg0MjNaeHIKN0xyME1Sbkxjc0p1Q3ducVBxRGFqTmhzZXNFOVdGdDl1d1BSeWFNVis1Nkp3SFBOWTFVVmpGczRCN0M3T21uWgo5dXM0YktncnhOZ3ZGUzQ4aFNlcVphRERKbG5UMVB1T3FNeEUycDhEU0hNRUpOcnRTanFQU005K2pWM2FCVFNLCjN6VEs5RGxPYkZTTlp5UjhZZGdrUTRMUnNUdXdrTTk1UWFxaXRMRG9STmRrVDZPSUl1djRPNzNBNlJZeUhNSGoKWmVoNHd6eTZUMWZDZWxLNFlWMjFyRnpnd0ZUZk8venJ5T1M3NWRaQWxKKy9selMwMFBYSVo5cUNJR0RaeUF4aQpFQ2ZTTDlGOTZSVDljazFNVkYxVHh5QXZSdXRmelR6QXJyVDJ4M0d5UncxUWZDZkJKbS9WeVA2dDFWajhOM2pIClF2RzJ3cFhSQWdNQkFBRUNnZ0VBREpSeUZDZmd0dndWTmJ0VHA4U0xEbTY5Z3hlUFg2RHUvYlVnWGlFL0xTc1MKWm1uemlSZWV4Z2t0cEZla3FJTkhoaGNIb3BqZ0dBVktramNWOEdKWE5JNDRKVWtjNnM2NStaMXdvUkpEdEprNgpJZnNFSDFGSEhDc2tYbEZadzNXdGd1YTI0dDYzd2YyU2JjbGdqMHdCWnlzdEhKTVZkYmlBVndyandFR2RGcjJCCmF5MWFMS2lpemdHNCtMdERLcnhOSzdhb0NVYzFWN2kwRzhWdDBoUGJzWlpkM1hHVFNrVkZSQ1B0OE5mMDh3ckkKTGNBSE9CYzRKbTdEWlowQXJhaFBDRnVBOFhWVjk0SmNWVit1Wjk5OEc0SVRYS1l5MDNGYWV6K2tzeTFGTElnZApPU0g2WUFhVlpYUE5EalV2ZEdFaTF2Z0tOaU5kM1p0RTc2bmFwUi9FandLQmdRRDN2blVOUHRMRE5wemY0eGsvCk1vWkhYb0lMVnRrb21zOXZBS3JtZW8xQVd0cE1ydUE0T25NcXI0N0hlb2JEcmplU1JLdkZ2WHdCaEZoZzNobGYKQkJvTjRnak85Q2xITldjZGxnckxCMGtIbjJTTUJGaWlLdWFVU1ZRa2k5QWhVR1psTEg1Rlo0WmJHMkNoTnBhNAoyUXFGQ0hiaUdJUjlwTDF1TUZWM2xPZlgvd0tCZ1FEVXdHaHN3Q1FlYnJTZXhXU2JvcFpRT1JrUkFUc3pxNnJuCmlrK25xRjhvendBcEo5UEdFdm5ZWWFWd1VpYU43L3YrMnpFVkZ2S2c1eU9GZ2RnUHZHMXhiTE9MQmUxZVExZU4KSldpaFB5bEF0SUp5U0VHUUxLejVNenExSWtMRmhWc09XaWloRitKcE4rUlpzNEJVRFNobTJQb0tpeE5RK2hwVgpZWE1qUFA0U0x3S0JnRmFWK1NEMCtRS0RQdGE4NzJENERwZzQvcWhwNVNIYzRXekJSZm1oa1dhUm1rUTh4bDdBCmh1bS9TOTZLQXptMjFQTkpEdVBnY3N1dzdwYUVhVWVkRG1JVnd0Qlo0MmRnMGJZMGIzZEFCNVVqYnlmRWlSbTgKZHJRUzROYVpDdGZwMnErM21qWTFsVzZZSmZDU1BLRkVNZm9HMkUzekZiTTM5WURpWWF5V25XVVBBb0dCQUxpOApkakJ3U3l5dHZtTGJUamdpWHRrOEt6cnIwY2RWT2lxaG0vY2VLYnNhdTY0QTZrL2xMRk9xdm1nZ3ZWK2tVakdECmpVUWQwQUxOa2JlYy9zcnpPQ2swVlZiVGg4REJRdVhKNU9lWEc3QVd6ZXFFT1lJQ2VSUk9XcHpzS2dTdmZsaWgKQ3dTTzQ4ZXZnN1lzT3JOQlZhS3dwN1c5KzhEbDJ6WG1UMzc2dURkN0FvR0FJbGtBb2tqVUJwc2RRbGZJWFJFOAp0K1J1Q1lhTFBmTGltKzQ2V2haZkIzcjY4QVUvZlM0eFc3VHZZcUJ2QS9SOGdYVnpzTDRNeWt2ZWsyLzlyd3lRCjNEMSt2NEh4MVFWNWNNcURxb1QrNUZSYTgrbUZxQkNWcU5jcXNwemRnSTdlOUlwZVREWm90dk9ldHJZYmJkR20KclRBeldGZWc3ZXZxQVplYmtmdml2ZFE9Ci0tLS0tRU5EIFBSSVZBVEUgS0VZLS0tLS0K
+kind: Secret
+metadata:
+  creationTimestamp: "2022-11-14T17:59:54Z"
+  name: ui-ingress
+  namespace: dev
+  resourceVersion: "17833"
+  uid: 005cbbc1-2cce-4e95-b235-14b8b29153a7
+type: kubernetes.io/tls
+```
+
+Сохраним это в файл `ui-ingress-secret.yml`.
+
+**Результат №09-2:**
+ - Для создания `ui-ingress-secret.yml` мы использовали команду редактирования секрета.
+
+ ---
+
+**Задание №09-3:**
+ - - ограничить трафик, поступающий на mongodb отовсюду, кроме сервисов post и comment
+
+**Решение №09-3:**
+
+В прошлых проектах мы договорились о том, что хотелось бы разнести сервисы базы данных и сервис фронтенда по разным сетям, сделав их недоступными друг для друга.
+В Kubernetes у нас так сделать не получится с помощью отдельных сетей, так как все POD-ы могут достучаться друг до друга по-умолчанию.
+Мы будем использовать NetworkPolicy - инструмент для декларативного описания потоков трафика.
+
+Описываем правило в манифесте `mongo-network-policy.yml`:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-db-traffic
+  labels:
+    app: reddit
+spec:
+  podSelector:
+    matchLabels:
+      app: reddit
+      component: mongo
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: reddit
+          component: comment
+```
+
+Применяем, проверяем:
+```console
+> kubectl apply -n dev -f mongo-network-policy.yml
+networkpolicy.networking.k8s.io/deny-db-traffic created
+
+> kubectl get networkpolicy -n dev
+NAME              POD-SELECTOR                 AGE
+deny-db-traffic   app=reddit,component=mongo   21s
+
+> kubectl describe networkpolicy -n dev
+Name:         deny-db-traffic
+Namespace:    dev
+Created on:   2022-11-14 00:00:00 +0000 UTC
+Labels:       app=reddit
+Annotations:  <none>
+Spec:
+  PodSelector:     app=reddit,component=mongo
+  Allowing ingress traffic:
+    To Port: <any> (traffic allowed to all ports)
+    From:
+      PodSelector: app=reddit,component=comment
+  Not affecting egress traffic
+  Policy Types: Ingress
+```
+
+Чтобы `post` мог подключаться к базе, его нужно добавить в podSelector:
+```patch
+index 2417842..48ba4a5 100644
+--- a/kubernetes/reddit/mongo-network-policy.yml
++++ b/kubernetes/reddit/mongo-network-policy.yml
+@@ -17,3 +17,7 @@ spec:
+         matchLabels:
+           app: reddit
+           component: comment
++    - podSelector:
++        matchLabels:
++          app: reddit
++          component: post
+```
+
+Применяем, проверяем:
+```console
+> kubectl apply -n dev -f mongo-network-policy.yml
+networkpolicy.networking.k8s.io/deny-db-traffic configured
+
+> kubectl get networkpolicy -n dev
+NAME              POD-SELECTOR                 AGE
+deny-db-traffic   app=reddit,component=mongo   19m
+
+> kubectl describe networkpolicy -n dev
+Name:         deny-db-traffic
+Namespace:    dev
+Created on:   2022-11-14 00:00:00 +0000 UTC
+Labels:       app=reddit
+Annotations:  <none>
+Spec:
+  PodSelector:     app=reddit,component=mongo
+  Allowing ingress traffic:
+    To Port: <any> (traffic allowed to all ports)
+    From:
+      PodSelector: app=reddit,component=comment
+    From:
+      PodSelector: app=reddit,component=post
+  Not affecting egress traffic
+  Policy Types: Ingress
+```
+
+**Результат №09-3:**
+ - Для контейнера с БД ограничен трафик, доступ разрешён только с `post` и `comment`, но это не точно.
+
+---
+
+**Задание №09-4:**
+ - Рассмотрим вопросы хранения данных
+
+**Решение №09-4:**
+
+ Основной Stateful сервис в нашем приложении - это базы данных MongoDB. В текущий момент она запускается в виде Deployment и хранит данные в стандартных Docker Volume-ах. Это имеет несколько проблем:
+ - При удалении POD-а удаляется и Volume
+ - Потерям Nod'ы с mongo грозит потерей данных
+ - Запуск базы на другой ноде запускает новый экземпляр данных
+
+Пробуем удалить `deployment` для `mongo` и создать его заново. После запуска пода база оказывается пустой.
+
+Для постоянного хранения данных используется PersistentVolume.
+
+Создадим диск в облаке:
+```console
+> yc compute disk create --name k8s --size 4 --description "disk for k8s"
+
+done (10s)
+id: fhm1tve2dl47lp9lukfj
+folder_id: b1******************
+created_at: "2022-11-14T00:00:00Z"
+name: k8s
+description: disk for k8s
+type_id: network-hdd
+zone_id: ru-central1-a
+size: "4294967296"
+block_size: "4096"
+status: READY
+disk_placement_policy: {}
+```
+
+Описываем `mongo-volume.yml`:
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mongo-pv
+spec:
+  capacity:
+    storage: 4Gi
+  accessModes:
+    - ReadWriteOnce
+  csi:
+    driver: disk-csi-driver.mks.ycloud.io
+    fsType: ext4
+    volumeHandle: fhm1tve2dl47lp9lukfj
+```
+
+Мы создали ресурс дискового хранилища, распространенный на весь кластер, в виде PersistentVolume.
+Чтобы выделить приложению часть такого ресурса - нужно создать запрос на выдачу - PersistentVolumeClain.
+Claim - это именно запрос, а не само хранилище. С помощью запроса можно выделить место как из конкретного
+PersistentVolume (тогда параметры accessModes и StorageClass должны соответствовать, а места должно хватать),
+так и просто создать отдельный PersistentVolume под конкретный запрос.
+
+Описываем `mongo-claim.yml`:
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mongo-pvc
+spec:
+  storageClassName: ""
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 4Gi
+  volumeName: mongo-ya-pd-storage
+```
+
+Обновляем `mongo-deployment.yml`:
+```patch
+--- a/kubernetes/reddit/mongo-deployment.yml
++++ b/kubernetes/reddit/mongo-deployment.yml
+@@ -30,4 +30,5 @@ spec:
+           mountPath: /data/db
+       volumes:
+       - name: mongo-persistent-storage
+-        emptyDir: {}
++        persistentVolumeClaim:
++          claimName: mongo-pvc
+```
+
+Применяем, проверяем:
+```console
+> kubectl apply -f mongo-pv.yml
+persistentvolume/mongo-pv created
+
+> kubectl apply -f mongo-pvc.yml -n dev
+persistentvolumeclaim/mongo-pvc created
+
+> kubectl get pv
+NAME       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS      CLAIM   STORAGECLASS   REASON   AGE
+mongo-pv   4Gi        RWO            Retain           Available                                   50s
+
+> kubectl describe pv mongo-pv
+Name:            mongo-pv
+Labels:          <none>
+Annotations:     <none>
+Finalizers:      [kubernetes.io/pv-protection]
+StorageClass:
+Status:          Available
+Claim:
+Reclaim Policy:  Retain
+Access Modes:    RWO
+VolumeMode:      Filesystem
+Capacity:        4Gi
+Node Affinity:   <none>
+Message:
+Source:
+    Type:              CSI (a Container Storage Interface (CSI) volume source)
+    Driver:            disk-csi-driver.mks.ycloud.io
+    FSType:            ext4
+    VolumeHandle:      fhm1tve2dl47lp9lukfj
+    ReadOnly:          false
+    VolumeAttributes:  <none>
+Events:                <none>
+
+> kubectl get pvc -n dev
+NAME        STATUS    VOLUME                CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+mongo-pvc   Pending   mongo-ya-pd-storage   0                                        5m
+
+> kubectl describe pvc mongo-pvc -n dev
+Name:          mongo-pvc
+Namespace:     dev
+StorageClass:
+Status:        Bound
+Volume:        mongo-pv
+Labels:        <none>
+Annotations:   pv.kubernetes.io/bind-completed: yes
+Finalizers:    [kubernetes.io/pvc-protection]
+Capacity:      4Gi
+Access Modes:  RWO
+VolumeMode:    Filesystem
+Used By:       mongo-7dbb8b6f7b-fqhkg
+Events:        <none>
+```
+
+Создаём пост, удаляем под с базой данных, запускаем его заново.
+Пост на месте.
+
+Всё работает.
+
+**Результат №09-4:**
+ - При помощи PersistentVolume было создано постоянное хранилище даных для `mongo`
+
+---
