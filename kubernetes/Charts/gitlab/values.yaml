@@ -48,10 +48,10 @@ global:
     allowClusterRoles: true
   ## https://docs.gitlab.com/charts/charts/globals#configure-host-settings
   hosts:
-    domain: example.com
+    domain: 158.160.37.223.sslip.io
     hostSuffix:
     https: true
-    externalIP:
+    externalIP: 158.160.37.223
     ssh: ~
     gitlab: {}
     minio: {}
@@ -808,7 +808,7 @@ upgradeCheck:
 certmanager-issuer:
 #   # The email address to register certificates requested from Let's Encrypt.
 #   # Required if using Let's Encrypt.
-  email: email@example.com
+  email: r2d2k@yandex.by
 
 ## Installation & configuration of jetstack/cert-manager
 ## See requirements.yaml for current version
