@@ -50,3 +50,7 @@ variable "node_memory_size" {
 variable "node_disk_size" {
   description = "Node disk size"
 }
+
+variable "nodes_count" {
+  description = "Nodes count"
+}

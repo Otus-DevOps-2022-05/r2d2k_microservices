@@ -24,6 +24,7 @@ resource "yandex_kubernetes_node_group" "my_node_group" {
   cluster_id  = yandex_kubernetes_cluster.yc_cluster.id
 
   version     = var.k8s_version
+  count       = var.nodes_count
 
   instance_template {
     platform_id = "standard-v2"
